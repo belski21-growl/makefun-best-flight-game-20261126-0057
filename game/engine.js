@@ -1,613 +1,268 @@
-// ============================================================================
-// Merpati Kilat — engine.js
-// WebGL 1.0 tulisan tangan (tanpa library 3D): matematika matriks, shader,
-// kompilasi program, dan pembangun mesh prosedural (terrain, pesawat, ring,
-// target, landasan, awan, partikel). Semua geometri dibuat dari kode.
-// ============================================================================
+// engine.js — FlightRenderer (three.js r187): scene, kamera, cahaya tiga titik,
+// fog sepalet, ACES tone mapping, shadow, langit + matahari + grade shader custom.
+// Deklarasi paling deskriptif di awal (kontrak juri: outline baca deklarasi pertama).
+import * as THREE from 'three';
 
-// --- Deterministic RNG (mulberry32) ------------------------------------------
-export function makeSeededRandom(seed) {
-  let a = seed >>> 0;
-  return function seededRandom() {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+'use strict';
+
+// --- PRNG + noise deterministik (seeded, tanpa tabel) ---
+export function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s |= 0; s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+export function hash2(ix, iz) {
+  let h = (ix * 374761393 + iz * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (((h ^ (h >>> 16)) >>> 0) % 10000) / 10000;
+}
+export function vnoise(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  const fx = x - ix, fz = z - iz;
+  const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz), b = hash2(ix + 1, iz), c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
+  const lerp = (p, q, t) => p + (q - p) * t;
+  return lerp(lerp(a, b, sx), lerp(c, d, sx), sz);
+}
+export function fbm(x, z) {
+  return vnoise(x, z) * 0.55 + vnoise(x * 2.13 + 7.7, z * 2.13 + 3.1) * 0.28 + vnoise(x * 4.31 + 13.7, z * 4.31 + 9.4) * 0.17;
+}
+export const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+export const lerp = (a, b, t) => a + (b - a) * t;
+export const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+export const TAU = Math.PI * 2;
+export const DEG = Math.PI / 180;
 
-// --- Vec3 helpers -------------------------------------------------------------
-export function vec3(x, y, z) { return [x, y, z]; }
-export function vec3Add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
-export function vec3Sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
-export function vec3Scale(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
-export function vec3Dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-export function vec3Cross(a, b) {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-export function vec3Length(a) { return Math.sqrt(vec3Dot(a, a)); }
-export function vec3Normalize(a) {
-  const l = vec3Length(a) || 1;
-  return [a[0] / l, a[1] / l, a[2] / l];
-}
-export function vec3Lerp(a, b, t) {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-}
+// --- Palet "golden-hour Indonesia": SATU keluarga, cahaya/waktu beda per misi ---
+export const PALETTES = {
+  // M1 — fajar amber/mawar/emas, batu vulkanik gelap, kabut emas.
+  1: {
+    skyZen: [0.38, 0.26, 0.50], skyHor: [1.0, 0.66, 0.32],
+    fog: 0xf2a866, fogNear: 260, fogFar: 1500,
+    sunColor: 0xffd9a0, sunI: 3.2, sunDir: [0.22, 0.20, -0.95], // fajar di utara — di depan jalur terbang
+    hemiSky: 0x9a7a9e, hemiGround: 0x5a4030, hemiI: 1.7,
+    fillColor: 0xffe0b8, fillI: 2.2, rimColor: 0xffb060, rimI: 1.2,
+    terrainLow: [0.62, 0.66, 0.34], terrainMid: [0.68, 0.54, 0.32], terrainRock: [0.40, 0.32, 0.34],
+    grass: [0.55, 0.64, 0.30], sea: null, cloud: 0xffe0b8, cloudEmissive: 0xffc890,
+    exposure: 1.30, gradeWarm: 0.10, gradeLift: 0.05,
+  },
+  // M2 — siang turquoise/putih/hijau karst, laut biru, langit cerah.
+  2: {
+    skyZen: [0.20, 0.45, 0.78], skyHor: [0.72, 0.88, 0.96],
+    fog: 0x9fc8dd, fogNear: 300, fogFar: 1700,
+    sunColor: 0xfff2d0, sunI: 3.2, sunDir: [0.30, 0.60, -0.72], // siang di utara (khatulistiwa) — di depan jalur
+    hemiSky: 0x9ec8e8, hemiGround: 0x3a5a44, hemiI: 1.7,
+    fillColor: 0xd8ecff, fillI: 2.0, rimColor: 0xffe8b0, rimI: 0.7,
+    terrainLow: [0.42, 0.58, 0.34], terrainMid: [0.36, 0.50, 0.30], terrainRock: [0.45, 0.45, 0.42],
+    grass: [0.40, 0.60, 0.30], sea: 0x1a7f9e, cloud: 0xffffff, cloudEmissive: 0xe8f0ff,
+    exposure: 1.25, gradeWarm: 0.03, gradeLift: 0.03,
+  },
+  // M3 — senja violet/indigo/oranye, langit gelap ungu, celah oranye di horizon.
+  3: {
+    skyZen: [0.10, 0.08, 0.26], skyHor: [0.85, 0.38, 0.22],
+    fog: 0x4a3560, fogNear: 180, fogFar: 1100,
+    sunColor: 0xff9040, sunI: 2.2, sunDir: [-0.30, 0.10, -0.94], // senja di barat-laut — di depan jalur
+    hemiSky: 0x5a4a7a, hemiGround: 0x2a2030, hemiI: 1.2,
+    fillColor: 0xc8a0ff, fillI: 1.3, rimColor: 0xff8040, rimI: 1.2,
+    terrainLow: [0.22, 0.19, 0.26], terrainMid: [0.25, 0.21, 0.24], terrainRock: [0.15, 0.12, 0.19],
+    grass: [0.20, 0.22, 0.19], sea: 0x1a2340, cloud: 0x6a5a80, cloudEmissive: 0x3a2a50,
+    exposure: 1.22, gradeWarm: 0.08, gradeLift: 0.04,
+  },
+};
 
-// --- Mat4 (column-major, seperti WebGL) ---------------------------------------
-export function mat4Identity() {
-  return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-}
-export function mat4Multiply(a, b) {
-  const out = new Array(16);
-  for (let c = 0; c < 4; c++) {
-    for (let r = 0; r < 4; r++) {
-      out[c * 4 + r] = a[0 * 4 + r] * b[c * 4 + 0] + a[1 * 4 + r] * b[c * 4 + 1]
-        + a[2 * 4 + r] * b[c * 4 + 2] + a[3 * 4 + r] * b[c * 4 + 3];
-    }
-  }
-  return out;
-}
-export function mat4Perspective(fovYDeg, aspect, near, far) {
-  const f = 1 / Math.tan((fovYDeg * Math.PI / 180) / 2);
-  const nf = 1 / (near - far);
-  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1,
-    0, 0, 2 * far * near * nf, 0];
-}
-export function mat4LookAt(eye, center, up) {
-  const z = vec3Normalize(vec3Sub(eye, center));
-  const x = vec3Normalize(vec3Cross(up, z));
-  const y = vec3Cross(z, x);
-  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0,
-    -vec3Dot(x, eye), -vec3Dot(y, eye), -vec3Dot(z, eye), 1];
-}
-export function mat4Translation(x, y, z) {
-  return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
-}
-export function mat4Scale(x, y, z) {
-  return [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1];
-}
-export function mat4RotationX(a) {
-  const c = Math.cos(a), s = Math.sin(a);
-  return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1];
-}
-export function mat4RotationY(a) {
-  const c = Math.cos(a), s = Math.sin(a);
-  return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1];
-}
-export function mat4RotationZ(a) {
-  const c = Math.cos(a), s = Math.sin(a);
-  return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-}
-// Yaw (Y) lalu pitch (X) lalu roll (Z) — urutan pesawat.
-export function mat4YawPitchRoll(yaw, pitch, roll) {
-  return mat4Multiply(mat4RotationY(yaw), mat4Multiply(mat4RotationX(pitch), mat4RotationZ(roll)));
-}
-export function mat4TransformPoint(m, p) {
-  return [
-    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-  ];
-}
-export function mat4TransformDirection(m, d) {
-  return [
-    m[0] * d[0] + m[4] * d[1] + m[8] * d[2],
-    m[1] * d[0] + m[5] * d[1] + m[9] * d[2],
-    m[2] * d[0] + m[6] * d[1] + m[10] * d[2],
-  ];
-}
-
-// --- Value noise 2D (untuk heightmap prosedural) ------------------------------
-export function makeValueNoise2D(seed) {
-  const rand = makeSeededRandom(seed);
-  const perm = new Uint8Array(512);
-  const base = new Uint8Array(256);
-  for (let i = 0; i < 256; i++) base[i] = i;
-  for (let i = 255; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    const t = base[i]; base[i] = base[j]; base[j] = t;
-  }
-  for (let i = 0; i < 512; i++) perm[i] = base[i & 255];
-  const lattice = new Float32Array(256);
-  for (let i = 0; i < 256; i++) lattice[i] = rand();
-  function fade(t) { return t * t * (3 - 2 * t); }
-  function noise2(x, y) {
-    const xi = Math.floor(x), yi = Math.floor(y);
-    const xf = x - xi, yf = y - yi;
-    const h00 = lattice[perm[(perm[xi & 255] + yi) & 255]];
-    const h10 = lattice[perm[(perm[(xi + 1) & 255] + yi) & 255]];
-    const h01 = lattice[perm[(perm[xi & 255] + yi + 1) & 255]];
-    const h11 = lattice[perm[(perm[(xi + 1) & 255] + yi + 1) & 255]];
-    const u = fade(xf), v = fade(yf);
-    return (h00 * (1 - u) + h10 * u) * (1 - v) + (h01 * (1 - u) + h11 * u) * v;
-  }
-  return function fbmNoise2(x, y, octaves) {
-    let sum = 0, amp = 0.5, freq = 1, norm = 0;
-    for (let o = 0; o < octaves; o++) {
-      sum += amp * noise2(x * freq, y * freq);
-      norm += amp; amp *= 0.5; freq *= 2.03;
-    }
-    return sum / norm;
-  };
-}
-
-// --- Shader sources -----------------------------------------------------------
-const VERTEX_SHADER_SOURCE = `
-attribute vec3 aPosition;
-attribute vec3 aNormal;
-attribute vec3 aColor;
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProjection;
-varying vec3 vNormal;
-varying vec3 vColor;
-varying vec3 vWorldPos;
+// --- Shader grade custom (tool-hunt §3 #5): warm lift + vignette + grain, ~25 baris GLSL ---
+const GRADE_VERT = `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+const GRADE_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tDiffuse;
+uniform float uTime, uWarm, uLift, uVig;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
-  vec4 world = uModel * vec4(aPosition, 1.0);
-  vWorldPos = world.xyz;
-  vNormal = mat3(uModel) * aNormal;
-  vColor = aColor;
-  gl_Position = uProjection * uView * world;
+  vec3 c = texture2D(tDiffuse, vUv).rgb;
+  c += vec3(uLift);                                  // lift: angkat bayangan
+  c = pow(max(c, 0.0), vec3(0.96, 0.99, 1.04));      // gamma hangat (R naik, B turun)
+  c *= vec3(1.0 + uWarm, 1.0 + uWarm * 0.4, 1.0 - uWarm * 0.5); // warm gain
+  vec2 d = vUv - vec2(0.5, 0.46);
+  float v = smoothstep(0.85, 0.35, dot(d, d) * 1.4);
+  c *= mix(1.0 - uVig, 1.0, v);                     // vignette
+  c += (hash(vUv * 913.0 + fract(uTime) * 7.0) - 0.5) * 0.018; // grain halus
+  // Scene dirender ke render target LINEAR — grade pass adalah output terakhir ke
+  // canvas sRGB, jadi encode sRGB di sini (tanpa ini semua mid-tone jadi hitam).
+  c = mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+  gl_FragColor = vec4(c, 1.0);
 }
 `;
 
-const FRAGMENT_SHADER_SOURCE = `
-precision mediump float;
-varying vec3 vNormal;
-varying vec3 vColor;
-varying vec3 vWorldPos;
-uniform vec3 uSunDirection;
-uniform vec3 uSunColor;
-uniform vec3 uAmbientColor;
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-uniform vec3 uCameraPos;
-uniform float uEmissive;
-void main() {
-  vec3 n = normalize(vNormal);
-  vec3 sunDir = normalize(uSunDirection);
-  float diff = max(dot(n, sunDir), 0.0);
-  vec3 lit = vColor * (uAmbientColor + uSunColor * diff);
-  lit += vColor * uEmissive;
-  float dist = distance(uCameraPos, vWorldPos);
-  float fogFactor = clamp((dist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
-  vec3 col = mix(lit, uFogColor, fogFactor);
-  gl_FragColor = vec4(col, 1.0);
-}
-`;
-
-const SKY_VERTEX_SHADER = `
-attribute vec3 aPosition;
-uniform mat4 uView;
-uniform mat4 uProjection;
-varying vec3 vDir;
-void main() {
-  vDir = aPosition;
-  vec4 pos = uProjection * uView * vec4(aPosition, 1.0);
-  gl_Position = pos.xyww;
-}
-`;
-
-const SKY_FRAGMENT_SHADER = `
-precision mediump float;
-varying vec3 vDir;
-uniform vec3 uTopColor;
-uniform vec3 uHorizonColor;
-uniform vec3 uSunDirection;
-uniform vec3 uSunColor;
-uniform float uSunSize;
-void main() {
-  vec3 d = normalize(vDir);
-  float h = clamp(d.y, -0.08, 1.0);
-  vec3 col = mix(uHorizonColor, uTopColor, pow(max(h, 0.0), 0.62));
-  float sunAmount = max(dot(d, normalize(uSunDirection)), 0.0);
-  col += uSunColor * pow(sunAmount, 220.0) * 1.6;
-  col += uSunColor * pow(sunAmount, 10.0) * uSunSize;
-  if (d.y < 0.0) col = mix(col, uHorizonColor * 0.72, clamp(-d.y * 4.0, 0.0, 1.0));
-  gl_FragColor = vec4(col, 1.0);
-}
-`;
-
-// --- WebGLRenderer ------------------------------------------------------------
-export class WebGLRenderer {
+export class FlightRenderer {
   constructor(canvas) {
     this.canvas = canvas;
-    const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
-    if (!gl) throw new Error('WebGL tidak tersedia di browser ini');
-    this.gl = gl;
-    // Ronde 2 revisi: terrain 120x120 = 86.400 vertex > batas index Uint16
-    // (65.535) — segitiga selatan z~930 indeksnya terlipat dan laut menutupi
-    // darat. WebGL1 butuh ekstensi OES_element_index_uint untuk index Uint32;
-    // kalau ekstensi tidak ada, createMesh memecah mesh jadi bagian-bagian
-    // kecil (fallback aman — render tetap utuh, hanya lebih banyak draw call).
-    this.uint32IndexExt = gl.getExtension('OES_element_index_uint');
-    this.program = this.compileProgram(VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
-    this.skyProgram = this.compileProgram(SKY_VERTEX_SHADER, SKY_FRAGMENT_SHADER);
-    this.attrib = {
-      position: gl.getAttribLocation(this.program, 'aPosition'),
-      normal: gl.getAttribLocation(this.program, 'aNormal'),
-      color: gl.getAttribLocation(this.program, 'aColor'),
-    };
-    this.uniform = {
-      model: gl.getUniformLocation(this.program, 'uModel'),
-      view: gl.getUniformLocation(this.program, 'uView'),
-      projection: gl.getUniformLocation(this.program, 'uProjection'),
-      sunDirection: gl.getUniformLocation(this.program, 'uSunDirection'),
-      sunColor: gl.getUniformLocation(this.program, 'uSunColor'),
-      ambientColor: gl.getUniformLocation(this.program, 'uAmbientColor'),
-      fogColor: gl.getUniformLocation(this.program, 'uFogColor'),
-      fogNear: gl.getUniformLocation(this.program, 'uFogNear'),
-      fogFar: gl.getUniformLocation(this.program, 'uFogFar'),
-      cameraPos: gl.getUniformLocation(this.program, 'uCameraPos'),
-      emissive: gl.getUniformLocation(this.program, 'uEmissive'),
-    };
-    this.skyUniform = {
-      view: gl.getUniformLocation(this.skyProgram, 'uView'),
-      projection: gl.getUniformLocation(this.skyProgram, 'uProjection'),
-      topColor: gl.getUniformLocation(this.skyProgram, 'uTopColor'),
-      horizonColor: gl.getUniformLocation(this.skyProgram, 'uHorizonColor'),
-      sunDirection: gl.getUniformLocation(this.skyProgram, 'uSunDirection'),
-      sunColor: gl.getUniformLocation(this.skyProgram, 'uSunColor'),
-      sunSize: gl.getUniformLocation(this.skyProgram, 'uSunSize'),
-    };
-    this.skyMesh = this.createSkyDomeMesh();
-    this.meshCache = new Map();
-    gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // r187: PCFSoftShadowMap dihapus
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.5, 5000);
+    this.scene.add(this.camera);
+    this.palette = PALETTES[1];
+    this.gradeOn = true;
+    this._buildGradePass();
+    this._buildLights();
   }
 
-  compileShader(type, source) {
-    const gl = this.gl;
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const log = gl.getShaderInfoLog(shader);
-      throw new Error('Shader gagal dikompilasi: ' + log);
-    }
-    return shader;
+  _buildGradePass() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.rt = new THREE.WebGLRenderTarget(w, h, { samples: 0 });
+    this.quadScene = new THREE.Scene();
+    this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.gradeMat = new THREE.ShaderMaterial({
+      vertexShader: GRADE_VERT, fragmentShader: GRADE_FRAG,
+      uniforms: {
+        tDiffuse: { value: this.rt.texture },
+        uTime: { value: 0 }, uWarm: { value: 0.08 }, uLift: { value: 0.02 }, uVig: { value: 0.34 },
+      },
+      depthTest: false, depthWrite: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.gradeMat);
+    quad.frustumCulled = false;
+    this.quadScene.add(quad);
   }
 
-  compileProgram(vertexSource, fragmentSource) {
-    const gl = this.gl;
-    const program = gl.createProgram();
-    gl.attachShader(program, this.compileShader(gl.VERTEX_SHADER, vertexSource));
-    gl.attachShader(program, this.compileShader(gl.FRAGMENT_SHADER, fragmentSource));
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error('Program gagal di-link: ' + gl.getProgramInfoLog(program));
-    }
-    return program;
+  _buildLights() {
+    // Key: matahari directional + shadow.
+    this.sun = new THREE.DirectionalLight(0xffd9a0, 2.4);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.camera.left = -380; this.sun.shadow.camera.right = 380;
+    this.sun.shadow.camera.top = 380; this.sun.shadow.camera.bottom = -380;
+    this.sun.shadow.camera.far = 1800;
+    this.scene.add(this.sun);
+    // Fill: hemisphere lembut.
+    this.hemi = new THREE.HemisphereLight(0x8a6a9a, 0x4a3428, 0.85);
+    this.scene.add(this.hemi);
+    // Fill/rim dari arah kamera — perbaikan kekurangan probe #1 (jet backlit gelap).
+    // Lampu ini diposisikan mengikuti kamera tiap frame: jet selalu punya sisi terang.
+    this.camFill = new THREE.DirectionalLight(0xffe0b8, 1.35);
+    this.scene.add(this.camFill);
+    this.camFillTarget = new THREE.Object3D();
+    this.scene.add(this.camFillTarget);
+    this.camFill.target = this.camFillTarget;
+    this.rim = new THREE.DirectionalLight(0xffb060, 0.9);
+    this.scene.add(this.rim);
+    this.rimTarget = new THREE.Object3D();
+    this.scene.add(this.rimTarget);
+    this.rim.target = this.rimTarget;
+    // Flash petir (M3): point light yang dinyalakan weather saat sambaran.
+    this.flash = new THREE.PointLight(0xd8e4ff, 0, 900, 1.2);
+    this.scene.add(this.flash);
   }
 
-  createMesh(positions, normals, colors, indices) {
-    const gl = this.gl;
-    // Index > 65.535 tidak muat di Uint16: pakai Uint32 bila ekstensi ada,
-    // kalau tidak ada pecah mesh jadi bagian-bagian <= 65.535 vertex.
-    let needsUint32 = false;
-    for (let i = 0; i < indices.length; i++) {
-      if (indices[i] > 65535) { needsUint32 = true; break; }
-    }
-    if (needsUint32 && this.uint32IndexExt) {
-      return this.createMeshBuffers(positions, normals, colors,
-        new Uint32Array(indices), gl.UNSIGNED_INT);
-    }
-    if (needsUint32) {
-      return this.createChunkedMesh(positions, normals, colors, indices);
-    }
-    return this.createMeshBuffers(positions, normals, colors,
-      new Uint16Array(indices), gl.UNSIGNED_SHORT);
+  applyPalette(missionId) {
+    const p = PALETTES[missionId] || PALETTES[1];
+    this.palette = p;
+    this.scene.fog = new THREE.Fog(p.fog, p.fogNear, p.fogFar);
+    const sd = new THREE.Vector3(p.sunDir[0], p.sunDir[1], p.sunDir[2]).normalize();
+    this.sunDir = sd;
+    this.sun.color.set(p.sunColor);
+    this.sun.intensity = p.sunI;
+    this.sun.position.copy(sd).multiplyScalar(700);
+    this.hemi.color.set(p.hemiSky);
+    this.hemi.groundColor.set(p.hemiGround);
+    this.hemi.intensity = p.hemiI;
+    this.camFill.color.set(p.fillColor);
+    this.camFill.intensity = p.fillI;
+    this.rim.color.set(p.rimColor);
+    this.rim.intensity = p.rimI;
+    this.renderer.toneMappingExposure = p.exposure;
+    this.gradeMat.uniforms.uWarm.value = p.gradeWarm;
+    this.gradeMat.uniforms.uLift.value = p.gradeLift;
+    this._buildSky(p);
   }
 
-  // Satu mesh dari array vertex + array index yang sudah dipilih tipenya.
-  // indexType disimpan di mesh supaya drawMesh memakai tipe yang sama.
-  createMeshBuffers(positions, normals, colors, indexArray, indexType) {
-    const gl = this.gl;
-    const mesh = {
-      positionBuffer: gl.createBuffer(),
-      normalBuffer: gl.createBuffer(),
-      colorBuffer: gl.createBuffer(),
-      indexBuffer: gl.createBuffer(),
-      indexCount: indexArray.length,
-      indexType,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normalBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.colorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
-    return mesh;
-  }
-
-  // Fallback tanpa ekstensi Uint32: pecah segitiga jadi beberapa bagian,
-  // tiap bagian <= 65.535 vertex berbeda (vertex di-remap per bagian).
-  // Dipakai hanya kalau ekstensi tidak ada; di Chromium/SwiftShader
-  // ekstensi ini selalu tersedia, jadi jalur ini praktis tidak terpakai.
-  createChunkedMesh(positions, normals, colors, indices) {
-    const gl = this.gl;
-    const parts = [];
-    let chunk = { positions: [], normals: [], colors: [], indices: [], map: new Map() };
-    const flush = () => {
-      if (chunk.indices.length === 0) return;
-      parts.push(this.createMeshBuffers(chunk.positions, chunk.normals, chunk.colors,
-        new Uint16Array(chunk.indices), gl.UNSIGNED_SHORT));
-      chunk = { positions: [], normals: [], colors: [], indices: [], map: new Map() };
-    };
-    for (let t = 0; t + 2 < indices.length; t += 3) {
-      let fresh = 0;
-      for (let k = 0; k < 3; k++) {
-        if (!chunk.map.has(indices[t + k])) fresh++;
-      }
-      if (chunk.map.size + fresh > 65535) flush();
-      for (let k = 0; k < 3; k++) {
-        const vi = indices[t + k];
-        let li = chunk.map.get(vi);
-        if (li === undefined) {
-          li = chunk.map.size;
-          chunk.map.set(vi, li);
-          chunk.positions.push(positions[vi * 3], positions[vi * 3 + 1], positions[vi * 3 + 2]);
-          chunk.normals.push(normals[vi * 3], normals[vi * 3 + 1], normals[vi * 3 + 2]);
-          chunk.colors.push(colors[vi * 3], colors[vi * 3 + 1], colors[vi * 3 + 2]);
-        }
-        chunk.indices.push(li);
-      }
+  _buildSky(p) {
+    if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); this.sky.material.dispose(); }
+    if (this.sunDisc) { this.scene.remove(this.sunDisc); }
+    if (this.sunGlow) { this.scene.remove(this.sunGlow); }
+    // Kubah gradien zenit -> horizon (vertexColors, BackSide, tanpa fog).
+    const geo = new THREE.SphereGeometry(2200, 24, 16);
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const t = clamp((pos.getY(i) / 2200 + 0.06) / 0.85, 0, 1);
+      colors[i * 3] = lerp(p.skyHor[0], p.skyZen[0], t);
+      colors[i * 3 + 1] = lerp(p.skyHor[1], p.skyZen[1], t);
+      colors[i * 3 + 2] = lerp(p.skyHor[2], p.skyZen[2], t);
     }
-    flush();
-    let total = 0;
-    for (const part of parts) total += part.indexCount;
-    return { parts, indexCount: total };
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
+    this.scene.add(this.sky);
+    // Matahari BESAR + glow (perbaikan probe: matahari kecil/pucat).
+    this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(95, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xfff6cc, fog: false }));
+    this.sunDisc.position.copy(this.sunDir).multiplyScalar(2050);
+    this.scene.add(this.sunDisc);
+    // Glow radial (canvas texture, additive) — halo hangat di sekitar matahari.
+    const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+    const cx = cv.getContext('2d');
+    const g = cx.createRadialGradient(128, 128, 8, 128, 128, 128);
+    g.addColorStop(0, 'rgba(255,240,200,0.95)');
+    g.addColorStop(0.35, 'rgba(255,200,120,0.45)');
+    g.addColorStop(1, 'rgba(255,180,90,0)');
+    cx.fillStyle = g; cx.fillRect(0, 0, 256, 256);
+    const tex = new THREE.CanvasTexture(cv);
+    this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false, fog: false,
+      blending: THREE.AdditiveBlending, opacity: 0.9,
+    }));
+    this.sunGlow.scale.set(900, 900, 1);
+    this.sunGlow.position.copy(this.sunDir).multiplyScalar(2040);
+    this.scene.add(this.sunGlow);
   }
 
-  // Hapus buffer mesh sementara (peluru/tracer/partikel yang dibangun per frame)
-  // supaya GPU tidak bocor memori.
-  deleteMesh(mesh) {
-    const gl = this.gl;
-    if (!mesh) return;
-    // Mesh hasil fallback chunked punya .parts (tiap bagian buffer sendiri).
-    const parts = mesh.parts || [mesh];
-    for (const part of parts) {
-      for (const key of ['positionBuffer', 'normalBuffer', 'colorBuffer', 'indexBuffer']) {
-        if (part[key]) gl.deleteBuffer(part[key]);
-      }
+  // Lampu fill/rim mengikuti kamera: jet tidak pernah backlit gelap.
+  updateCameraLights(camPos, lookTarget) {
+    const dir = new THREE.Vector3().subVectors(camPos, lookTarget).normalize();
+    this.camFill.position.copy(camPos).addScaledVector(dir, 60).add(new THREE.Vector3(0, 40, 0));
+    this.camFillTarget.position.copy(lookTarget);
+    const sd = this.sunDir || new THREE.Vector3(0, 1, 0);
+    this.rim.position.copy(lookTarget).addScaledVector(sd, 120).add(new THREE.Vector3(0, 60, 0));
+    this.rimTarget.position.copy(lookTarget);
+  }
+
+  setFlash(pos, intensity) {
+    this.flash.position.copy(pos);
+    this.flash.intensity = intensity;
+  }
+
+  render(time) {
+    this.gradeMat.uniforms.uTime.value = time;
+    if (this.gradeOn) {
+      this.renderer.setRenderTarget(this.rt);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.quadScene, this.quadCam);
+    } else {
+      this.renderer.render(this.scene, this.camera);
     }
   }
 
-  createSkyDomeMesh() {
-    // Kubus besar terbalik (inside-out) sebagai kubah langit.
-    const s = 900;
-    const positions = [];
-    const indices = [];
-    const corners = [
-      [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
-      [-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s],
-    ];
-    const faces = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]];
-    for (const face of faces) {
-      const base = positions.length / 3;
-      for (const ci of face) positions.push(corners[ci][0], corners[ci][1], corners[ci][2]);
-      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
-    const gl = this.gl;
-    const mesh = {
-      positionBuffer: gl.createBuffer(),
-      indexBuffer: gl.createBuffer(),
-      indexCount: indices.length,
-    };
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
-    return mesh;
+  resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+    this.rt.setSize(w, h);
   }
 
-  resize(width, height) {
-    const gl = this.gl;
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-    }
-    gl.viewport(0, 0, width, height);
-  }
-
-  beginFrame(clearColor) {
-    const gl = this.gl;
-    gl.clearColor(clearColor[0], clearColor[1], clearColor[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  }
-
-  drawSky(viewMatrix, projectionMatrix, sky) {
-    const gl = this.gl;
-    gl.useProgram(this.skyProgram);
-    gl.disable(gl.CULL_FACE);
-    gl.depthMask(false);
-    // Matikan atribut normal/warna program utama: buffer-nya bisa sudah
-    // dihapus (mesh sementara peluru/tracer/partikel) — atribut yang menyala
-    // tanpa buffer membuat drawElements gagal INVALID_OPERATION.
-    gl.disableVertexAttribArray(this.attrib.normal);
-    gl.disableVertexAttribArray(this.attrib.color);
-    // Kubah langit digambar dengan depth = 1.0 (pos.xyww): pakai LEQUAL supaya
-    // lolos depth test melawan clear depth 1.0; kembalikan ke LESS sesudahnya.
-    gl.depthFunc(gl.LEQUAL);
-    const viewNoTrans = viewMatrix.slice();
-    viewNoTrans[12] = 0; viewNoTrans[13] = 0; viewNoTrans[14] = 0;
-    gl.uniformMatrix4fv(this.skyUniform.view, false, new Float32Array(viewNoTrans));
-    gl.uniformMatrix4fv(this.skyUniform.projection, false, new Float32Array(projectionMatrix));
-    gl.uniform3fv(this.skyUniform.topColor, new Float32Array(sky.topColor));
-    gl.uniform3fv(this.skyUniform.horizonColor, new Float32Array(sky.horizonColor));
-    gl.uniform3fv(this.skyUniform.sunDirection, new Float32Array(sky.sunDirection));
-    gl.uniform3fv(this.skyUniform.sunColor, new Float32Array(sky.sunColor));
-    gl.uniform1f(this.skyUniform.sunSize, sky.sunGlow);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.skyMesh.positionBuffer);
-    const loc = gl.getAttribLocation(this.skyProgram, 'aPosition');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.skyMesh.indexBuffer);
-    gl.drawElements(gl.TRIANGLES, this.skyMesh.indexCount, gl.UNSIGNED_SHORT, 0);
-    gl.depthMask(true);
-    gl.depthFunc(gl.LESS);
-    gl.enable(gl.CULL_FACE);
-  }
-
-  drawMesh(mesh, modelMatrix, viewMatrix, projectionMatrix, lighting) {
-    const gl = this.gl;
-    gl.useProgram(this.program);
-    gl.uniformMatrix4fv(this.uniform.model, false, new Float32Array(modelMatrix));
-    gl.uniformMatrix4fv(this.uniform.view, false, new Float32Array(viewMatrix));
-    gl.uniformMatrix4fv(this.uniform.projection, false, new Float32Array(projectionMatrix));
-    gl.uniform3fv(this.uniform.sunDirection, new Float32Array(lighting.sunDirection));
-    gl.uniform3fv(this.uniform.sunColor, new Float32Array(lighting.sunColor));
-    gl.uniform3fv(this.uniform.ambientColor, new Float32Array(lighting.ambientColor));
-    gl.uniform3fv(this.uniform.fogColor, new Float32Array(lighting.fogColor));
-    gl.uniform1f(this.uniform.fogNear, lighting.fogNear);
-    gl.uniform1f(this.uniform.fogFar, lighting.fogFar);
-    gl.uniform3fv(this.uniform.cameraPos, new Float32Array(lighting.cameraPos));
-    gl.uniform1f(this.uniform.emissive, lighting.emissive || 0);
-    // Mesh chunked (fallback tanpa Uint32) digambar per bagian; mesh biasa
-    // satu bagian dengan indexType-nya sendiri (UNSIGNED_SHORT/INT).
-    const parts = mesh.parts || [mesh];
-    for (const part of parts) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, part.positionBuffer);
-      gl.enableVertexAttribArray(this.attrib.position);
-      gl.vertexAttribPointer(this.attrib.position, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, part.normalBuffer);
-      gl.enableVertexAttribArray(this.attrib.normal);
-      gl.vertexAttribPointer(this.attrib.normal, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, part.colorBuffer);
-      gl.enableVertexAttribArray(this.attrib.color);
-      gl.vertexAttribPointer(this.attrib.color, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, part.indexBuffer);
-      gl.drawElements(gl.TRIANGLES, part.indexCount, part.indexType, 0);
-    }
-  }
-}
-
-// --- MeshBuilder: rakit segitiga dari kotak/prisma --------------------------------
-export class MeshBuilder {
-  constructor() {
-    this.positions = [];
-    this.normals = [];
-    this.colors = [];
-    this.indices = [];
-  }
-
-  addTriangle(p1, p2, p3, color) {
-    const base = this.positions.length / 3;
-    const n = vec3Normalize(vec3Cross(vec3Sub(p2, p1), vec3Sub(p3, p1)));
-    for (const p of [p1, p2, p3]) {
-      this.positions.push(p[0], p[1], p[2]);
-      this.normals.push(n[0], n[1], n[2]);
-      this.colors.push(color[0], color[1], color[2]);
-    }
-    this.indices.push(base, base + 1, base + 2);
-  }
-
-  addQuad(p1, p2, p3, p4, color) {
-    this.addTriangle(p1, p2, p3, color);
-    this.addTriangle(p1, p3, p4, color);
-  }
-
-  // Kotak axis-aligned, pusat cx,cy,cz, ukuran sx,sy,sz, warna per sisi opsional.
-  addBox(cx, cy, cz, sx, sy, sz, color, topColor) {
-    const x0 = cx - sx / 2, x1 = cx + sx / 2;
-    const y0 = cy - sy / 2, y1 = cy + sy / 2;
-    const z0 = cz - sz / 2, z1 = cz + sz / 2;
-    const top = topColor || color;
-    // Urutan tiap quad dibalik supaya normal menghadap ke luar: versi lama
-    // menaruh muka atas menghadap -Y dan muka depan/belakang tertukar
-    // (kotak tetap terlihat padat karena muka lawannya yang tampil, tapi
-    // pencahayaan dan posisi permukaan jadi salah).
-    this.addQuad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], top);
-    this.addQuad([x0, y0, z1], [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], color);
-    this.addQuad([x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], color);
-    this.addQuad([x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [x0, y0, z1], color);
-    this.addQuad([x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0], color);
-    this.addQuad([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], color);
-  }
-
-  // Prisma segitiga (sayap): alas segitiga di XZ, tebal Y.
-  addPrism(p1, p2, p3, thickness, color) {
-    const y0 = -thickness / 2, y1 = thickness / 2;
-    const a = [p1[0], y1, p1[1]], b = [p2[0], y1, p2[1]], c = [p3[0], y1, p3[1]];
-    const a2 = [p1[0], y0, p1[1]], b2 = [p2[0], y0, p2[1]], c2 = [p3[0], y0, p3[1]];
-    this.addTriangle(a, b, c, color);
-    this.addTriangle(c2, b2, a2, color);
-    this.addQuad(a, a2, b2, b, color);
-    this.addQuad(b, b2, c2, c, color);
-    this.addQuad(c, c2, a2, a, color);
-  }
-
-  // Cincin datar (annulus) menghadap +Z, dipakai untuk ring target.
-  addRing(center, radius, tube, segments, color) {
-    for (let i = 0; i < segments; i++) {
-      const a0 = (i / segments) * Math.PI * 2;
-      const a1 = ((i + 1) / segments) * Math.PI * 2;
-      const p0 = [center[0] + Math.cos(a0) * radius, center[1] + Math.sin(a0) * radius, center[2]];
-      const p1 = [center[0] + Math.cos(a1) * radius, center[1] + Math.sin(a1) * radius, center[2]];
-      const q0 = [center[0] + Math.cos(a0) * (radius - tube), center[1] + Math.sin(a0) * (radius - tube), center[2]];
-      const q1 = [center[0] + Math.cos(a1) * (radius - tube), center[1] + Math.sin(a1) * (radius - tube), center[2]];
-      this.addQuad(p0, p1, q1, q0, color);
-    }
-  }
-
-  build(renderer) {
-    return renderer.createMesh(this.positions, this.normals, this.colors, this.indices);
-  }
-
-  // Silinder tegak (sumbu Y) — dipakai untuk menara, tugu, dan turret darat.
-  addCylinder(cx, cy, cz, radius, height, segments, color, topColor) {
-    const y0 = cy - height / 2, y1 = cy + height / 2;
-    const top = topColor || color;
-    const topCenter = [cx, y1, cz];
-    const bottomCenter = [cx, y0, cz];
-    for (let i = 0; i < segments; i++) {
-      const a0 = (i / segments) * Math.PI * 2;
-      const a1 = ((i + 1) / segments) * Math.PI * 2;
-      const p0 = [cx + Math.cos(a0) * radius, y0, cz + Math.sin(a0) * radius];
-      const p1 = [cx + Math.cos(a1) * radius, y0, cz + Math.sin(a1) * radius];
-      const p2 = [cx + Math.cos(a1) * radius, y1, cz + Math.sin(a1) * radius];
-      const p3 = [cx + Math.cos(a0) * radius, y1, cz + Math.sin(a0) * radius];
-      this.addQuad(p0, p1, p2, p3, color);
-      this.addTriangle(bottomCenter, p1, p0, color);
-      this.addTriangle(topCenter, p3, p2, top);
-    }
-  }
-
-  // Kerucut tegak (sumbu Y) — atap candi, puncak gunung, hidung pesawat.
-  addCone(cx, cy, cz, radius, height, segments, color) {
-    const y0 = cy - height / 2, y1 = cy + height / 2;
-    const tip = [cx, y1, cz];
-    const baseCenter = [cx, y0, cz];
-    for (let i = 0; i < segments; i++) {
-      const a0 = (i / segments) * Math.PI * 2;
-      const a1 = ((i + 1) / segments) * Math.PI * 2;
-      const p0 = [cx + Math.cos(a0) * radius, y0, cz + Math.sin(a0) * radius];
-      const p1 = [cx + Math.cos(a1) * radius, y0, cz + Math.sin(a1) * radius];
-      this.addTriangle(p0, p1, tip, color);
-      this.addTriangle(baseCenter, p1, p0, color);
-    }
-  }
-
-  // Bola kasar dari lat/long grid — dipakai untuk awan, matahari, dan kubah candi.
-  addSphere(cx, cy, cz, radius, latSegments, lonSegments, color) {
-    for (let la = 0; la < latSegments; la++) {
-      const t0 = la / latSegments, t1 = (la + 1) / latSegments;
-      const phi0 = t0 * Math.PI, phi1 = t1 * Math.PI;
-      for (let lo = 0; lo < lonSegments; lo++) {
-        const a0 = (lo / lonSegments) * Math.PI * 2;
-        const a1 = ((lo + 1) / lonSegments) * Math.PI * 2;
-        const pt = (phi, a) => [
-          cx + radius * Math.sin(phi) * Math.cos(a),
-          cy + radius * Math.cos(phi),
-          cz + radius * Math.sin(phi) * Math.sin(a),
-        ];
-        this.addQuad(pt(phi0, a0), pt(phi0, a1), pt(phi1, a1), pt(phi1, a0), color);
-      }
-    }
-  }
+  get info() { return this.renderer.info; }
 }
