@@ -15,6 +15,9 @@ import { FlightModel, WeatherSystem, MissionManager, MODULE_CHOICES,
   ProjectileSet, ParticleSet } from './flight.js';
 import { StageMusicEngine, RadioChatter } from './audio.js';
 import { HeadsUpDisplay } from './presentation.js';
+import { RadarMinimap } from './radar.js';
+import { SpeedAltTapes } from './tapes.js';
+import { GateLabels } from './gatelabels.js';
 
 // --- Parameter screenshot (?shot=...) — posisi deterministik untuk juri --------
 // Ronde 4: tiap preset membawa STAGED HUD STATE yang konsisten (blocker 7) —
@@ -42,6 +45,9 @@ const shotMode = Boolean(shotPreset);
 const canvas = document.getElementById('gl');
 const renderer = new WebGLRenderer(canvas);
 const hud = new HeadsUpDisplay();
+const radar = new RadarMinimap();
+const tapes = new SpeedAltTapes();
+const gateLabels = new GateLabels();
 const music = new StageMusicEngine();
 const radio = new RadioChatter();
 
@@ -600,6 +606,8 @@ function update(dt) {
     break;
   }
   hud.update({ plane, mission, weather, cameraMode, shotCaption: null, nextRing });
+  radar.update({ plane, rings, bonusRings, targets, runway });
+  tapes.update({ plane });
   hud.updateBannerAndToast(dt);
   hud.renderRadio(radio.lines);
 }
@@ -639,6 +647,7 @@ function render() {
   // E3 — FOV dinamis (currentFov dihaluskan di update()): melebar saat gas penuh.
   const projection = mat4Perspective(currentFov, aspect, 0.5, 2600);
   const view = buildViewMatrix();
+  gateLabels.update({ view, projection, width, height, plane, rings, bonusRings });
   const palette = weather.skyPalette();
   const camPos = cameraMode === 'cockpit'
     ? vec3Add(plane.position, [0, 1.6, -1])
