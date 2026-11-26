@@ -95,3 +95,77 @@ pesawat, instrumen, runway/ring, HUD) dengan identitas Indonesia yang
 kuat dan mekanik cuaca yang nyata — bukan hiasan. Kekurangan utama ada
 di detail visual pesawat dan absennya musuh udara; keduanya sengaja
 dikorbankan demi scope ronde 1 yang selesai tepat waktu.
+
+## Refresh ronde 2 — 26 Nov ~22:45 WIB (setelah ronde 1: rank 389/6.258, skor 682.899)
+
+### Metode refresh
+
+Blind: board hanya menunjukkan 5 di atas + 5 di bawah rank kita
+(rounds/board). 10 artefak tetangga (rank 384–388, 390–394) diunduh
+publik via `/api/submissions/<id>/artifact.webp?phase=dev` dan dibaca
+dengan mata. Repo pesaing tidak bisa dibaca (`source_withheld: true`) —
+semua klaim hanya dari yang terlihat di screenshot. Submission list
+(100 pertama dari 6.258) menunjukkan lapangan didominasi satu keluarga
+template "3D Tactical Flight Simulator" (THERMAL ASCENT, DELTA SKYWAYS,
+SKY VANGUARD, APEX AIRFRAME, FLIGHT CORRIDOR, VALLEY INTERCEPT,
+GLIDESLOPE PRO, RIDGE RUNNER, ...) — puluhan klon template yang sama.
+
+### Yang tetangga lakukan lebih baik (dilihat, bukan klaim)
+
+1. **Kepadatan instrumen di chase view.** Keluarga tactical-sim
+   (384/386/387/394) menampilkan SEKALIGUS: strip kompas atas +
+   kotak HDG, pita kecepatan kiri, pita ketinggian kanan,
+   radar/minimap kanan bawah, jarak gate (G-02 265m), landasan,
+   afterburner. Chase view kita hanya teks ALT/SPD/HDG +
+   skor/BBM/BADAN — terbaca lebih tipis sebagai "simulator" dalam
+   satu screenshot.
+2. **Jarak + arah ke objektif berikutnya.** Tetangga melabel gate
+   berikutnya dengan jarak DAN bearing ("RING 5 0.2 NM BRG 015°",
+   "APPROACHING GATE 01 · ON GLIDESLOPE MERPATI RWY 36",
+   "CINCIN BERIKUTNYA — 454 m"). Kita hanya RING x/6 + cincin emas
+   tanpa jarak — juri tidak bisa melihat seberapa jauh objektif
+   berikutnya.
+3. **Radar/minimap.** 384/386/387/391/392/394 semuanya punya
+   radar/minimap. Kita tidak punya.
+4. **Objektif raksasa yang tak mungkin terlewat.** 388/393: cincin
+   kuning/amber mengisi sebagian besar frame. Cincin kita ~23% frame
+   (sengaja setelah Goldfish r1) — benar secara komposisi, tapi kalah
+   fotogenik.
+5. **Keterbacaan konsep dalam 1 detik (385 Neat Palette).**
+   Water-bomber: api + asap + semprotan air + "FIRES OUT 2/7" —
+   misinya terbaca tanpa membaca teks. Misi kita kuat (3 misi +
+   cuaca) tapi butuh radio text untuk menjelaskan dirinya.
+
+### Yang kita masih lebih baik
+
+- Identitas Indonesia (hanya Elang Nusantara 391 + Garuda 394 yang
+  berbagi; Garuda twin-turboprop mail-run, Elang cold-start ring run
+  — kita punya 3 misi + cuaca sebagai mekanik + musik per stage +
+  radio chatter).
+- Hero shot matahari terbit Bromo tetap salah satu yang tercantik di
+  sekitar rank kita.
+- HUD kita lebih bersih (tetangga kadang terlihat penuh sesak).
+
+### Perbaikan ronde 2 (dipilih, 1–2 dampak tertinggi)
+
+- D1 (DIPILIH, dikerjakan builder ronde 2): strip kompas atas + chip
+  "RING BERIKUTNYA — XXX m" di HUD chase (DOM saja, tanpa sentuh
+  engine). Menyalin pola pemenang yang dipakai 5 entry di atas kita.
+- D2 (DITUNDA): minimap/radar — dampak tinggi tapi butuh render
+  pass/DOM proyeksi baru; risiko scope di jendela sempit; kandidat
+  ronde 3 kalau ronde 2 belum cukup.
+- WAJIB lain (sudah di brief builder): Uint32 terrain (landasan
+  selatan di atas laut — cacat visual paling kelihatan), preset storm
+  (nabrak bukit 1,6 dtk), petir lebih tipis/halus.
+
+### Estimasi jujur (sebelum Goldfish re-review)
+
+Skor sekitar kita rapat (384: 683.664 → 394: 682.184; kita 682.899).
+Naik 5 rank ≈ +765 poin — dalam jangkauan perbaikan surgical. Top 50
+butuh lompatan jauh lebih besar (skor top 50 tidak terlihat — board
+hidden) — JANGAN klaim top 50 tercapai dari revisi ini; Goldfish yang
+menilai setelah melihat shot baru.
+
+Catatan: artefak tetangga tersimpan di
+`~/workspace/makefun/tmp-workspace/flight-r2-neighbors/rank-384.webp`
+s.d. `rank-394.webp` (10 file, 1024x576, untuk Goldfish re-review).
