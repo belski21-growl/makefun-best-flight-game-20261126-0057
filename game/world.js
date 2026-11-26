@@ -187,26 +187,43 @@ export class RunwayStrip {
     this.width = 26;
     const b = new MeshBuilder();
     const cx = this.center[0], cz = this.center[2];
-    // Ronde 2 revisi (a), lanjutan: landasan MENGIKUTI terrain — strip
-    // datar y=6 TERKUBUR di bawah terrain pulau (10,5 m di tengah, 42,6 m
-    // di ujung utara, 31,6 m di ujung selatan — diukur via heightAt);
-    // dulu strip itu hanya terlihat karena terrain selatan tidak
-    // ter-render (Uint16 overflow) dan laut y=0,4 ada di bawah strip.
-    // Kini strip diiris per 5 m, tiap iris duduk 0,5 m di atas terrain
-    // setempat, supaya marka tetap di atas tanah tanpa melayang.
-    // Posisi/panjang/lebar/heading landasan TIDAK berubah.
+    // Ronde 2 revisi (b) — Goldfish B1: iris DATAR ronde 2a (top =
+    // heightAt(tengah)+0,5 per segmen 5 m) membentuk TANGGA — tiap slab
+    // datar beda ~1 m dari tetangganya, patahan/tonjolan antar-segmen
+    // terlihat di shot 2 + 4. Kini tiap segmen jadi BIDANG MIRING yang
+    // mengikuti heightAt di KEDUA ujung (top = groundYAt(z)+0,5 di z0
+    // dan z1): permukaan atas segmen yang berurutan berbagi rusuk yang
+    // sama persis, jadi strip jadi SATU permukaan miring kontinu tanpa
+    // ledge. Sisi samping mengikuti kemiringan yang sama dan dasarnya
+    // terkubur 0,7 m di bawah terrain. Posisi/panjang/lebar/heading
+    // landasan TIDAK berubah.
     const half = this.length / 2;
     const segLen = 5;
     const groundYAt = (z) => (terrain ? terrain.heightAt(cx, z) : 6);
+    const stripColor = [0.22, 0.22, 0.24];
+    const x0 = cx - this.width / 2, x1 = cx + this.width / 2;
     for (let z0 = cz - half; z0 < cz + half; z0 += segLen) {
       const z1 = Math.min(cz + half, z0 + segLen);
-      const zm = (z0 + z1) / 2;
-      const top = groundYAt(zm) + 0.5;
-      b.addBox(cx, top - 0.6, zm, this.width, 1.2, z1 - z0 + 0.3, [0.22, 0.22, 0.24]);
+      const yt0 = groundYAt(z0) + 0.5, yt1 = groundYAt(z1) + 0.5;
+      const yb0 = groundYAt(z0) - 0.7, yb1 = groundYAt(z1) - 0.7;
+      // Permukaan atas miring (winding sama seperti terrain: normal +Y).
+      b.addQuad([x0, yt0, z0], [x0, yt1, z1], [x1, yt1, z1], [x1, yt0, z0], stripColor);
+      // Sisi barat + timur miring, dasar terkubur di bawah terrain.
+      b.addQuad([x0, yb1, z1], [x0, yt1, z1], [x0, yt0, z0], [x0, yb0, z0], stripColor);
+      b.addQuad([x1, yb0, z0], [x1, yt0, z0], [x1, yt1, z1], [x1, yb1, z1], stripColor);
+      // Ujung utara/selatan hanya di segmen pertama/terakhir.
+      if (z0 === cz - half) {
+        b.addQuad([x0, yb0, z0], [x0, yt0, z0], [x1, yt0, z0], [x1, yb0, z0], stripColor);
+      }
+      if (z1 === cz + half) {
+        b.addQuad([x1, yb1, z1], [x1, yt1, z1], [x0, yt1, z1], [x0, yb1, z1], stripColor);
+      }
     }
-    // Garis tengah putih + marka ujung kuning — diiris per segmen yang
-    // sama supaya mengikuti undakan strip (marka datar 14 m di atas
-    // strip yang menanjak akan mengapung / terkubur di ujungnya).
+    // Garis tengah putih + marka ujung kuning — kini QUAD MIRING yang
+    // mengikuti permukaan strip di kedua ujung segmen (bukan box datar:
+    // box datar ikut membentuk tangga mini di atas strip). Quad tipis
+    // 0,15 m di atas strip, rusuk antar-segmen berbagi titik yang sama
+    // persis sehingga marka pun kontinu tanpa patahan.
     const inDash = (z) => {
       for (let k = -4; k <= 4; k++) {
         const mz = cz + k * 26;
@@ -219,12 +236,14 @@ export class RunwayStrip {
     for (let z0 = cz - half; z0 < cz + half; z0 += segLen) {
       const z1 = Math.min(cz + half, z0 + segLen);
       const zm = (z0 + z1) / 2;
-      const top = groundYAt(zm) + 0.5;
+      const mt0 = groundYAt(z0) + 0.65, mt1 = groundYAt(z1) + 0.65;
       if (inDash(zm)) {
-        b.addBox(cx, top + 0.2, zm, 3, 0.6, z1 - z0 + 0.3, [0.95, 0.95, 0.90]);
+        const dx0 = cx - 1.5, dx1 = cx + 1.5;
+        b.addQuad([dx0, mt0, z0], [dx0, mt1, z1], [dx1, mt1, z1], [dx1, mt0, z0], [0.95, 0.95, 0.90]);
       }
       if (inThreshold(zm)) {
-        b.addBox(cx, top + 0.2, zm, this.width - 6, 0.6, z1 - z0 + 0.3, [0.95, 0.80, 0.20]);
+        const tx0 = cx - (this.width - 6) / 2, tx1 = cx + (this.width - 6) / 2;
+        b.addQuad([tx0, mt0, z0], [tx0, mt1, z1], [tx1, mt1, z1], [tx1, mt0, z0], [0.95, 0.80, 0.20]);
       }
     }
     // Menara kecil + hanggar di sisi landasan. Ronde 4, blocker 3/6:
