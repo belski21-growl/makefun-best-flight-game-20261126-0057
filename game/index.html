@@ -1,176 +1,37 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 18 L30 16 L12 12 L16 4 L10 12 L2 10 Z' fill='%23ffd75e'/%3E%3C/svg%3E">
-<title>Merpati Kilat — Terbang, Bertarung, Mendarat</title>
+<title>Merpati Kilat — Probe r4 (three.js)</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-    background: #0b1626; font-family: "Segoe UI", Verdana, sans-serif; }
-  #gl { display: block; width: 100vw; height: 100vh; }
-  /* Panel kaca gelap + garis batik emas/teal di tepi atas: semua teks HUD
-     duduk di atas chip, bukan menempel langsung di langit/terrain. */
-  .hud { position: absolute; color: #eaf6ff; text-shadow: 0 1px 3px rgba(0,0,0,.85);
-    pointer-events: none; user-select: none; z-index: 5;
-    background: rgba(5,18,30,.72); border: 1px solid rgba(255,215,94,.38);
-    border-radius: 12px; padding: 10px 14px; box-shadow: 0 4px 18px rgba(0,0,0,.45);
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden; }
-  .hud::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
-    background: repeating-linear-gradient(90deg, #ffd75e 0 12px, #0e7c7b 12px 24px, #ff9d45 24px 30px); }
-  .hud .lbl { color: #9fe8ff; font-size: 11px; font-weight: 800; letter-spacing: 2px; }
-  #hud-top-left { top: 14px; left: 16px; font-size: 15px; line-height: 1.5; }
-  #hud-top-left .big { font-size: 34px; font-weight: 900; letter-spacing: 2px;
-    color: #ffd75e; text-shadow: 0 2px 10px rgba(255,183,0,.45), 0 1px 3px rgba(0,0,0,.9); line-height: 1.05; }
-  #hud-top-left .mission-line { font-size: 13px; color: #cfe8ff; letter-spacing: .5px; }
-  #hud-top-left .stat { font-size: 15px; }
-  #hud-top-right { top: 14px; right: 16px; text-align: right; font-size: 15px; line-height: 1.5; }
-  #hud-top-right .score-label { font-size: 11px; font-weight: 800; letter-spacing: 3px; color: #9fe8ff; }
-  #hud-top-right .score { font-size: 46px; font-weight: 900; color: #ffd75e; line-height: 1;
-    text-shadow: 0 2px 10px rgba(255,183,0,.45), 0 1px 3px rgba(0,0,0,.9); }
-  #hud-top-right .bank { font-size: 13px; color: #cfe8ff; }
-  .meter { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 5px; }
-  .meter-label { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #9fe8ff; }
-  .meter .bar { width: 130px; height: 10px; border-radius: 999px; background: rgba(255,255,255,.16);
-    border: 1px solid rgba(255,255,255,.25); overflow: hidden; }
-  .meter .fill { height: 100%; width: 100%; border-radius: 999px; background: #37d67a; }
-  .meter .fill.warn { background: #ffb020; }
-  .meter .fill.crit { background: #ff5a3c; }
-  .meter-val { font-size: 13px; font-weight: 800; min-width: 38px; }
-  /* Elemen overlay kosong (toast/banner/radio tanpa isi) disembunyikan:
-     kalau tidak, padding + background chip-nya jadi pil gelap melayang. */
-  #toast:empty, #banner:empty, #radio:empty { display: none; }
-  #hud-bottom-left { bottom: 14px; left: 16px; font-size: 14px; line-height: 1.45; max-width: 430px; }
-  #hud-bottom-left .obj { font-size: 14px; }
-  #hud-rings { display: inline-block; margin-top: 6px; font-weight: 800; font-size: 14px;
-    color: #ffe08a; background: rgba(255,215,94,.16); border: 1px solid #ffd75e;
-    border-radius: 999px; padding: 4px 12px; letter-spacing: 1px; }
-  #hud-bottom-left .wind-line { font-size: 13px; color: #9fe8ff; margin-top: 6px; }
-  /* (d) strip kompas atas-tengah: 7 slot tiap 30°, tengah = pill emas HDG.
-     Top 52 px: di bawah chip timer (14–47) dan di atas toast (100+). */
-  #compass-strip { top: 52px; left: 50%; transform: translateX(-50%); width: 340px;
-    padding: 6px 10px 8px; text-align: center; }
-  #compass-ticks { display: flex; justify-content: space-between; align-items: center; }
-  #compass-ticks span { font-size: 12px; font-weight: 700; color: #9fe8ff;
-    letter-spacing: 1px; min-width: 32px; text-align: center; }
-  #compass-ticks span.cur { color: #10233a; background: #ffd75e; border-radius: 6px;
-    padding: 2px 4px; font-size: 13px; min-width: 62px;
-    box-shadow: 0 0 10px rgba(255,215,94,.5); }
-  /* (d) chip jarak ring berikutnya — pill teal di bawah pill RING x/6. */
-  #hud-next-ring { display: inline-block; margin-top: 6px; font-weight: 800; font-size: 14px;
-    color: #bfe9ff; background: rgba(14,124,123,.25); border: 1px solid #0e7c7b;
-    border-radius: 999px; padding: 4px 12px; letter-spacing: 1px; }
-  #hud-next-ring:empty { display: none; }
-  #hud-bottom-center { bottom: 12px; left: 50%; transform: translateX(-50%);
-    text-align: center; font-size: 15px; font-weight: 600; border-radius: 999px;
-    padding: 8px 18px; white-space: nowrap; }
-  body.cockpit #hud-bottom-center { bottom: 196px; } /* di atas dasbor kokpit: tidak menabrak gauge */
-  #combo { color: #ff9d45; font-weight: 800; font-size: 20px; }
-  #radio { position: absolute; left: 16px; bottom: 150px; max-width: 430px;
-    color: #bfe9ff; font-size: 14px; line-height: 1.5; z-index: 5; pointer-events: none;
-    background: rgba(5,18,30,.66); border: 1px solid rgba(255,215,94,.3);
-    border-left: 3px solid #ffd75e; border-radius: 10px; padding: 8px 12px;
-    box-shadow: 0 4px 16px rgba(0,0,0,.4); backdrop-filter: blur(6px); }
-  #radio b { color: #ffd75e; }
-  #banner { position: absolute; top: 22%; left: 50%; transform: translate(-50%,-50%);
-    text-align: center; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.9);
-    z-index: 6; pointer-events: none; background: rgba(5,18,30,.72);
-    border: 1px solid rgba(255,215,94,.4); border-radius: 14px; padding: 18px 34px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.5); }
-  #banner h1 { font-size: 44px; margin: 0; letter-spacing: 3px; color: #ffd75e; }
-  #banner p { font-size: 19px; margin: 6px 0 0; }
-  #banner .sub { font-size: 14px; color: #cfe8ff; }
-  #damage-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 4;
-    box-shadow: inset 0 0 120px 40px rgba(255,30,20,.55); opacity: 0; }
-  #ice-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 4;
-    box-shadow: inset 0 0 140px 50px rgba(160,220,255,.6); opacity: 0; }
-  #cockpit-frame { position: absolute; inset: 0; pointer-events: none; z-index: 3; display: none; }
-  #cockpit-frame .dash { position: absolute; left: 0; right: 0; bottom: 0; height: 24vh;
-    background: linear-gradient(to top, #1a2027 55%, #2b333d 78%, transparent);
-    border-top: 3px solid #3d4750; }
-  #cockpit-frame .strut-l { position: absolute; left: 0; top: 0; bottom: 0; width: 9vw;
-    background: linear-gradient(to right, #14181d, transparent); }
-  #cockpit-frame .strut-r { position: absolute; right: 0; top: 0; bottom: 0; width: 9vw;
-    background: linear-gradient(to left, #14181d, transparent); }
-  #instruments { position: absolute; left: 50%; bottom: 3vh; transform: translateX(-50%);
-    display: none; gap: 18px; z-index: 6; pointer-events: none; }
-  .gauge { width: 92px; height: 92px; border-radius: 50%; background: #10161c;
-    border: 3px solid #b8912f; position: relative; box-shadow: 0 0 14px rgba(0,0,0,.7), 0 0 18px rgba(255,215,94,.18); }
-  .gauge .needle { position: absolute; left: 50%; top: 50%; width: 3px; height: 38px;
-    background: #ff5a3c; transform-origin: 50% 100%; transform: translate(-50%,-100%) rotate(0deg); }
-  .gauge .hub { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px;
-    background: #cfd8de; border-radius: 50%; transform: translate(-50%,-50%); }
-  .gauge .label { position: absolute; bottom: 8px; width: 100%; text-align: center;
-    color: #9fe8ff; font-size: 10px; letter-spacing: 1px; }
-  .gauge .val { position: absolute; top: 12px; width: 100%; text-align: center;
-    color: #fff; font-size: 13px; font-weight: 700; }
-  #overlay { position: absolute; inset: 0; background: rgba(4,10,20,.82); z-index: 10;
-    display: none; align-items: center; justify-content: center; }
-  #overlay .panel { background: #0e1a2b; border: 2px solid #2c4a6b; border-radius: 14px;
-    padding: 28px 34px; max-width: 640px; color: #eaf6ff; text-align: center;
-    box-shadow: 0 12px 50px rgba(0,0,0,.6); }
-  #overlay h2 { margin: 0 0 6px; color: #ffd75e; font-size: 28px; letter-spacing: 2px; }
-  #overlay p { font-size: 15px; line-height: 1.55; color: #cfe8ff; }
-  .mod-cards { display: flex; gap: 14px; margin-top: 18px; }
-  .mod-card { flex: 1; border: 2px solid #2c4a6b; border-radius: 10px; padding: 14px 10px;
-    cursor: pointer; background: #12233a; pointer-events: auto; }
-  .mod-card:hover { border-color: #ffd75e; background: #1a3050; }
-  .mod-card h3 { margin: 0 0 6px; font-size: 17px; color: #ffd75e; }
-  .mod-card p { font-size: 13px; margin: 0; }
-  .mod-card .key { display: inline-block; margin-top: 8px; background: #ffd75e; color: #10233a;
-    font-weight: 800; border-radius: 5px; padding: 2px 9px; font-size: 13px; }
-  #overlay button { margin-top: 18px; background: #ffd75e; color: #10233a; border: 0;
-    font-size: 16px; font-weight: 800; padding: 11px 26px; border-radius: 9px; cursor: pointer; }
-  #overlay button:hover { background: #ffe08a; }
-  #help { position: absolute; right: 16px; bottom: 14px; color: #cfe8ff; font-size: 12px;
-    line-height: 1.55; text-align: right; z-index: 5; pointer-events: none;
-    background: rgba(5,18,30,.72); border: 1px solid rgba(255,215,94,.3); border-radius: 10px;
-    padding: 8px 12px; max-width: 430px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
-  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 7; }
-  #toast { position: absolute; top: 100px; left: 50%; transform: translateX(-50%);
-    color: #ffd75e; font-size: 20px; font-weight: 800; z-index: 6; pointer-events: none;
-    background: rgba(5,18,30,.8); border: 1px solid rgba(255,215,94,.5); border-radius: 999px;
-    padding: 8px 20px; box-shadow: 0 4px 16px rgba(0,0,0,.45); white-space: nowrap; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a1a2e; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+  /* Vignette + warm grade (CSS, tanpa composer — finishing visual probe). */
+  #grade { position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 55%, rgba(20,8,20,0.38) 100%),
+                linear-gradient(rgba(255,180,90,0.05), rgba(255,180,90,0.05)); }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js",
+    "./vendor/three.core.js": "./vendor/three.core.min.js"
+  }
+}
+</script>
+<!-- three.module.min.js r187 mengimpor ./three.core.js (relatif). Import map di atas
+     memetakan URL itu ke three.core.min.js (minify jsDelivr yang sama, 422.062 byte,
+     12 baris) — kedua file *.min.js lokal di game/vendor/, tanpa CDN, tanpa file
+     library non-min. Lihat probe-r4.md. -->
 </head>
 <body>
-<canvas id="gl"></canvas>
-<div id="damage-vignette"></div>
-<div id="ice-vignette"></div>
-<div id="flash"></div>
-<div id="cockpit-frame"><div class="strut-l"></div><div class="strut-r"></div><div class="dash"></div></div>
-<div id="hud-top-left" class="hud">
-  <div class="big">MERPATI KILAT</div>
-  <div id="hud-mission" class="mission-line">MISI 1 — PAGI · Ngarai Bromo</div>
-  <div id="hud-alt" class="stat">ALT 0 m</div>
-  <div id="hud-spd" class="stat">SPD 0 km/j</div>
-  <div id="hud-hdg" class="stat">HDG 000°</div>
-</div>
-<div id="hud-top-right" class="hud">
-  <div class="score-label">SKOR</div>
-  <div class="score" id="hud-score">0</div>
-  <div id="hud-banked" class="bank">BANK: 0</div>
-  <div class="meter"><span class="meter-label">BBM</span><div class="bar"><div class="fill" id="hud-fuel-fill"></div></div><span class="meter-val" id="hud-fuel">100%</span></div>
-  <div class="meter"><span class="meter-label">BADAN</span><div class="bar"><div class="fill" id="hud-hull-fill"></div></div><span class="meter-val" id="hud-hull">100%</span></div>
-</div>
-<div id="compass-strip" class="hud"><div id="compass-ticks"></div></div>
-<div id="hud-bottom-left" class="hud">
-  <div id="hud-objective" class="obj">↑ lepas landas — ring pertama di depan!</div>
-  <div id="hud-rings">RING 0/6 · TARGET 0/4</div>
-  <div id="hud-next-ring"></div>
-  <div id="hud-wind" class="wind-line">ANGIN tenang</div>
-</div>
-<div id="hud-bottom-center" class="hud"><span id="combo"></span><span id="hud-hint"></span></div>
-<div id="radio"></div>
-<div id="banner"></div>
-<div id="toast"></div>
-<div id="instruments">
-  <div class="gauge"><div class="val" id="g-alt-v">0</div><div class="needle" id="g-alt-n"></div><div class="hub"></div><div class="label">ALT m</div></div>
-  <div class="gauge"><div class="val" id="g-spd-v">0</div><div class="needle" id="g-spd-n"></div><div class="hub"></div><div class="label">KM/J</div></div>
-  <div class="gauge"><div class="val" id="g-hdg-v">000</div><div class="needle" id="g-hdg-n"></div><div class="hub"></div><div class="label">HDG</div></div>
-</div>
-<div id="help">↑ gas · ← → belok · ↓ rem udara<br>SPASI tembak · C kamera · M suara</div>
-<div id="overlay"><div class="panel" id="overlay-panel"></div></div>
+<canvas id="gl" aria-label="Merpati Kilat probe: jet terbang rendah di ngarai Bromo saat fajar"></canvas>
+<canvas id="hud"></canvas>
+<div id="grade"></div>
+<p id="status" role="status" aria-live="polite"></p>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

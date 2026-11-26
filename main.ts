@@ -1,38 +1,33 @@
-// Merpati Kilat — entrypoint make.fun (Node 22, stdlib only, tanpa network).
-// Tugas: salin game/ + screenshots/ dari repo ke direktori output, lalu tulis
-// /output/dossier.json dengan buildDossier dari vendor/makefun-game.ts.
-// Di luar grader, MAKEFUN_OUTPUT_DIR menggantikan /output.
-// Erasable TypeScript only: tanpa enum, namespace, atau parameter properties.
+// main.ts — entrypoint "Merpati Kilat" (probe r4): Node 22, tanpa argumen, exit 0.
+// Menyalin game/ + screenshots/ dari repo ke MAKEFUN_OUTPUT_DIR (di luar grader: /output)
+// dan menulis /output/dossier.json dengan buildDossier dari vendor/makefun-game.ts.
+// Game: static files offline (game/index.html + ES module three.js vendored lokal
+// di game/vendor/three.module.min.js via import map — NOL network request).
+// Ditulis fresh dari kontrak entrypoint game-design-r4.md.
+
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const outDir: string = process.env.MAKEFUN_OUTPUT_DIR || '/output';
-// Repo root = direktori yang memuat main.ts ini (import.meta.url menunjuk ke
-// file ini, jadi '.' adalah root repo baik saat dijalankan dari repo maupun
-// dari salinan grader).
-const repoDir: string = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function copyEntryDir(name: string): void {
-  const src: string = join(repoDir, name);
-  const dest: string = join(outDir, name);
-  if (!existsSync(src)) {
-    throw new Error('Direktori entry tidak ditemukan di repo: ' + src);
-  }
-  cpSync(src, dest, { recursive: true });
-}
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-mkdirSync(outDir, { recursive: true });
-copyEntryDir('game');
-copyEntryDir('screenshots');
-
-const dossier: string = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 4 * 1024 * 1024 },
-  game_max_files: 993,
-  game_max_bytes: 48 * 1024 * 1024,
-  game_path_max_bytes: 1000,
-});
-
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log('dossier.json ditulis: ' + join(outDir, 'dossier.json'));
+// Caps gate (reference/gate.json): hanya text_max_bytes membentuk bytes; yang lain
+// menolak entry yang scorer akan tolak (lebih dari 4 screenshot atau satu di atas
+// 256 KiB; game/ lebih dari 993 file atau 48 MiB, atau path di atas 1000 byte).
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
