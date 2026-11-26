@@ -40,10 +40,23 @@ export class HeadsUpDisplay {
       gAltN: document.getElementById('g-alt-n'),
       gSpdN: document.getElementById('g-spd-n'),
       gHdgN: document.getElementById('g-hdg-n'),
+      compassTicks: document.getElementById('compass-ticks'),
+      nextRing: document.getElementById('hud-next-ring'),
     };
     this.bannerTimer = 0;
     this.toastTimer = 0;
     this.lastRadioKey = '';
+    // (d) strip kompas: 7 slot (tengah = heading saat ini) — dibangun sekali,
+    // update() hanya mengganti teksnya saat heading berubah.
+    this.compassSpans = [];
+    if (this.el.compassTicks) {
+      for (let i = 0; i < 7; i++) {
+        const s = document.createElement('span');
+        this.el.compassTicks.appendChild(s);
+        this.compassSpans.push(s);
+      }
+    }
+    this.lastHeading = -1;
   }
 
   showBanner(title, subtitle, detail) {
@@ -79,6 +92,35 @@ export class HeadsUpDisplay {
     this.setMeter(this.el.hull, this.el.hullFill, plane.hull);
     this.el.objective.textContent = mission.objectiveText;
     this.el.rings.textContent = mission.progressText;
+    // (d) strip kompas: 7 slot tiap 30° di sekitar heading saat ini
+    // (N/E/S/W untuk 000/090/180/270), tengah = pill emas "HDG 006".
+    const hdg = plane.headingDegrees();
+    if (this.compassSpans.length === 7 && Math.round(hdg) !== this.lastHeading) {
+      this.lastHeading = Math.round(hdg);
+      for (let i = 0; i < 7; i++) {
+        const h = (((Math.round(hdg) + (i - 3) * 30) % 360) + 360) % 360;
+        const label = h === 0 ? 'N' : h === 90 ? 'E' : h === 180 ? 'S' : h === 270 ? 'W'
+          : String(h).padStart(3, '0');
+        const span = this.compassSpans[i];
+        span.textContent = i === 3
+          ? `HDG ${String(Math.round(hdg)).padStart(3, '0')}` : label;
+        span.className = i === 3 ? 'cur' : '';
+      }
+    }
+    // (d) chip jarak ring berikutnya: jarak live + bearing relatif
+    // (data dari main.js via state.nextRing; null = semua ring dilewati).
+    const nr = state.nextRing;
+    if (this.el.nextRing) {
+      if (nr === undefined) {
+        this.el.nextRing.textContent = '';
+      } else if (nr === null) {
+        this.el.nextRing.textContent = 'SEMUA RING DILEWATI ✓';
+      } else {
+        const arrow = Math.abs(nr.relBearing) < 15 ? '▲' : nr.relBearing < 0 ? '◀' : '▶';
+        const brg = `${nr.relBearing < 0 ? '−' : '+'}${String(Math.abs(Math.round(nr.relBearing))).padStart(3, '0')}°`;
+        this.el.nextRing.textContent = `RING BERIKUTNYA — ${nr.dist} m ${arrow} ${brg}`;
+      }
+    }
     this.el.wind.textContent = weather.windDescription()
       + (plane.inCloud ? ' · DALAM AWAN — sembunyi!' : '')
       + (plane.iced > 0.3 ? ' · ES DI SAYAP!' : '');

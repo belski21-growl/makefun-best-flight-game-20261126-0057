@@ -46,6 +46,21 @@
     color: #ffe08a; background: rgba(255,215,94,.16); border: 1px solid #ffd75e;
     border-radius: 999px; padding: 4px 12px; letter-spacing: 1px; }
   #hud-bottom-left .wind-line { font-size: 13px; color: #9fe8ff; margin-top: 6px; }
+  /* (d) strip kompas atas-tengah: 7 slot tiap 30°, tengah = pill emas HDG.
+     Top 52 px: di bawah chip timer (14–47) dan di atas toast (100+). */
+  #compass-strip { top: 52px; left: 50%; transform: translateX(-50%); width: 340px;
+    padding: 6px 10px 8px; text-align: center; }
+  #compass-ticks { display: flex; justify-content: space-between; align-items: center; }
+  #compass-ticks span { font-size: 12px; font-weight: 700; color: #9fe8ff;
+    letter-spacing: 1px; min-width: 32px; text-align: center; }
+  #compass-ticks span.cur { color: #10233a; background: #ffd75e; border-radius: 6px;
+    padding: 2px 4px; font-size: 13px; min-width: 62px;
+    box-shadow: 0 0 10px rgba(255,215,94,.5); }
+  /* (d) chip jarak ring berikutnya — pill teal di bawah pill RING x/6. */
+  #hud-next-ring { display: inline-block; margin-top: 6px; font-weight: 800; font-size: 14px;
+    color: #bfe9ff; background: rgba(14,124,123,.25); border: 1px solid #0e7c7b;
+    border-radius: 999px; padding: 4px 12px; letter-spacing: 1px; }
+  #hud-next-ring:empty { display: none; }
   #hud-bottom-center { bottom: 12px; left: 50%; transform: translateX(-50%);
     text-align: center; font-size: 15px; font-weight: 600; border-radius: 999px;
     padding: 8px 18px; white-space: nowrap; }
@@ -112,7 +127,7 @@
     background: rgba(5,18,30,.72); border: 1px solid rgba(255,215,94,.3); border-radius: 10px;
     padding: 8px 12px; max-width: 430px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 7; }
-  #toast { position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+  #toast { position: absolute; top: 100px; left: 50%; transform: translateX(-50%);
     color: #ffd75e; font-size: 20px; font-weight: 800; z-index: 6; pointer-events: none;
     background: rgba(5,18,30,.8); border: 1px solid rgba(255,215,94,.5); border-radius: 999px;
     padding: 8px 20px; box-shadow: 0 4px 16px rgba(0,0,0,.45); white-space: nowrap; }
@@ -138,9 +153,11 @@
   <div class="meter"><span class="meter-label">BBM</span><div class="bar"><div class="fill" id="hud-fuel-fill"></div></div><span class="meter-val" id="hud-fuel">100%</span></div>
   <div class="meter"><span class="meter-label">BADAN</span><div class="bar"><div class="fill" id="hud-hull-fill"></div></div><span class="meter-val" id="hud-hull">100%</span></div>
 </div>
+<div id="compass-strip" class="hud"><div id="compass-ticks"></div></div>
 <div id="hud-bottom-left" class="hud">
   <div id="hud-objective" class="obj">↑ lepas landas — ring pertama di depan!</div>
   <div id="hud-rings">RING 0/6 · TARGET 0/4</div>
+  <div id="hud-next-ring"></div>
   <div id="hud-wind" class="wind-line">ANGIN tenang</div>
 </div>
 <div id="hud-bottom-center" class="hud"><span id="combo"></span><span id="hud-hint"></span></div>

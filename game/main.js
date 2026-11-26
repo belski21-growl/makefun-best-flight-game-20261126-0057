@@ -29,7 +29,7 @@ import { HeadsUpDisplay } from './presentation.js';
 const SHOT_PRESETS = {
   hero:    { mission: 0, camera: 'chase',   pos: [720, 80, 400],  yaw: 0.7, speed: 62, throttle: 0.7, elapsed: 23,  score: 150,  rings: 1, targets: 0, fuel: 98, hull: 100 },
   cockpit: { mission: 1, camera: 'cockpit', pos: [1226, 70, 1222], yaw: -0.2, speed: 58, throttle: 0.65, elapsed: 107, score: 150,  rings: 1, targets: 0, fuel: 94, hull: 98 },
-  storm:   { mission: 2, camera: 'chase',   pos: [700, 80, -100], yaw: 0.5, speed: 60, throttle: 0.7, elapsed: 151, score: 1100, rings: 3, targets: 1, fuel: 87, hull: 95 },
+  storm:   { mission: 2, camera: 'chase',   pos: [700, 130, -100], yaw: 0.5, speed: 60, throttle: 0.7, elapsed: 151, score: 1100, rings: 3, targets: 1, fuel: 87, hull: 95 },
   landing: { mission: 1, camera: 'chase',   pos: [1150, 42, 1155], yaw: 0.0, speed: 40, throttle: 0.35, elapsed: 192, score: 4450, rings: 6, targets: 4, fuel: 82, hull: 92 },
 };
 
@@ -47,7 +47,7 @@ const radio = new RadioChatter();
 
 const terrain = new TerrainMesh(renderer, 20261126);
 const landmarks = new LandmarkSet(renderer);
-const runway = new RunwayStrip(renderer);
+const runway = new RunwayStrip(renderer, terrain);
 const aircraft = new AircraftMesh(renderer);
 const clouds = new CloudSet(renderer, 26, 777);
 const stormClouds = new CloudSet(renderer, 40, 888);
@@ -172,10 +172,12 @@ function applyShotPreset() {
   plane.hull = shotPreset.hull;
   for (let i = 0; i < rings.rings.length; i++) rings.rings[i].passed = i < shotPreset.rings;
   for (let i = 0; i < targets.targets.length; i++) targets.targets[i].alive = i >= shotPreset.targets;
-  // Ronde 4, blocker 2: badai SENJA — kilat dipaksa di PUNCAK flash
-  // (0.8, konstan selama shot mode) supaya capture selalu menangkapnya;
-  // sambaran petir digambar sebagai geometri di render() (lihat bawah).
-  if (shotName === 'storm') weather.lightningFlash = 0.8;
+  // Ronde 4, blocker 2: badai SENJA — kilat dijaga TINGGI selama shot mode
+  // supaya capture selalu menangkapnya; sambaran petir digambar sebagai
+  // geometri di render() (lihat bawah). Ronde 2 revisi (c): nilai awal 0.7,
+  // lalu update() memakai flicker halus 0,46–0,78 (bukan konstan 0.8 —
+  // flash konstan membuat shot agak wash).
+  if (shotName === 'storm') weather.lightningFlash = 0.7;
   // Ronde 4: garis speed-line + hujan hanya relevan di gameplay — di shot
   // mode speed-line jadi goresan putih vertikal di bawah pesawat (artefak
   // still), jadi disembunyikan; hujan hanya tampil di shot storm.
@@ -302,11 +304,16 @@ function onCrashed(reason) {
 function update(dt) {
   elapsed += dt;
   weather.update(dt, plane.position);
-  // Mode screenshot SENJA: kilat DIPAKSA di puncak flash (0.8, konstan)
-  // supaya capture SELALU di puncak — bukan siklus naik-turun yang bisa
-  // padam tepat saat screenshot diambil (blocker 2).
+  // Mode screenshot SENJA: kilat dijaga TINGGI supaya capture SELALU
+  // menangkapnya — bukan siklus naik-turun yang bisa padam tepat saat
+  // screenshot diambil (blocker 2). Ronde 2 revisi (c): flicker HALUS,
+  // bukan konstan 0.8 — dua sinus (1,7 + 0,63 rad/dtk) memberi denyut
+  // tak-beraturan tapi lembut di 0,46–0,78: petir tetap jelas, wash
+  // putih berkurang; puncak 0,78 tetap di bawah guard 0,85 (tidak
+  // memicu thunder/stormLine berulang di shot mode).
   if (shotMode && missionIndex === 2) {
-    weather.lightningFlash = 0.8;
+    const t = mission.elapsed;
+    weather.lightningFlash = 0.62 + 0.16 * Math.sin(t * 1.7) * Math.sin(t * 0.63 + 1.3);
   }
   // Guard missionIndex===2: kilat + chatter badai HANYA di SENJA, apa pun
   // yang terjadi pada lightningFlash (lapis kedua setelah jepit dt).
@@ -579,7 +586,20 @@ function update(dt) {
   // E3 — speed lines: muncul di atas ~35 km/j, penuh di atas ~175 km/j.
   const speedFactor = Math.max(0, Math.min(1, (plane.speedKmh() - 35) / 140));
   speedLinesEl.style.opacity = String(speedFactor * 0.85);
-  hud.update({ plane, mission, weather, cameraMode, shotCaption: null });
+  // (d) ring berikutnya: jarak 3D + bearing relatif terhadap heading —
+  // untuk chip "RING BERIKUTNYA" di HUD (null kalau semua ring dilewati).
+  let nextRing = null;
+  for (const ring of rings.rings) {
+    if (ring.passed) continue;
+    const dx = ring.pos[0] - plane.position[0];
+    const dy = ring.pos[1] - plane.position[1];
+    const dz = ring.pos[2] - plane.position[2];
+    const targetHeading = ((-Math.atan2(-dx, -dz) * 180 / Math.PI) % 360 + 360) % 360;
+    const relBearing = (targetHeading - plane.headingDegrees() + 540) % 360 - 180;
+    nextRing = { dist: Math.round(Math.hypot(dx, dy, dz)), relBearing };
+    break;
+  }
+  hud.update({ plane, mission, weather, cameraMode, shotCaption: null, nextRing });
   hud.updateBannerAndToast(dt);
   hud.renderRadio(radio.lines);
 }
@@ -710,7 +730,11 @@ function render() {
       let side = vec3Normalize(vec3Cross(dir, [0, 1, 0]));
       if (vec3Length(side) < 0.01) side = [1, 0, 0];
       const up2 = vec3Normalize(vec3Cross(side, dir));
-      const s = vec3Scale(side, 0.7), u = vec3Scale(up2, 0.7);
+      // Ronde 2 revisi (c): ketebalan MERUNCING per segmen — setengah
+      // lebar 0,5 m di atas (1,0 m penuh) mengecil ke 0,3 m di ujung
+      // (0,6 m penuh), plus variasi kecil per segmen supaya tidak kaku.
+      const halfW = (0.5 - 0.2 * t) * (1 + 0.12 * Math.sin(i * 1.7));
+      const s = vec3Scale(side, halfW), u = vec3Scale(up2, halfW);
       const c = (a, b) => vec3Add(vec3Add(mid, vec3Scale(half, a)), vec3Scale(b, 1));
       boltBuilder.addQuad(c(-1, s), c(1, s), c(1, vec3Scale(s, -1)), c(-1, vec3Scale(s, -1)), [0.85, 0.92, 1.0]);
       boltBuilder.addQuad(c(-1, u), c(1, u), c(1, vec3Scale(u, -1)), c(-1, vec3Scale(u, -1)), [0.85, 0.92, 1.0]);

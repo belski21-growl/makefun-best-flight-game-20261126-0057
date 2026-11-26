@@ -177,22 +177,56 @@ export class LandmarkSet {
 
 // --- Runway (landasan pendek di pulau) ------------------------------------------
 export class RunwayStrip {
-  constructor(renderer) {
+  constructor(renderer, terrain) {
     // Landasan di (x=1150, z=980) — pulau dekat laut, arah utara-selatan.
+    // terrain (opsional): dipakai heightAt-nya supaya strip mengikuti
+    // permukaan pulau; tanpa terrain, strip jatuh ke y=6 (perilaku lama).
     this.center = [1150, 0, 980];
     this.heading = 0; // menghadap utara (-Z)
     this.length = 260;
     this.width = 26;
     const b = new MeshBuilder();
     const cx = this.center[0], cz = this.center[2];
-    const y = 6; // di atas terrain pulau (diratakan oleh misi)
-    b.addBox(cx, y, cz, this.width, 2, this.length, [0.22, 0.22, 0.24]);
-    // Garis tengah putih + marka ujung.
-    for (let k = -4; k <= 4; k++) {
-      b.addBox(cx, y + 1.2, cz + k * 26, 3, 0.6, 14, [0.95, 0.95, 0.90]);
+    // Ronde 2 revisi (a), lanjutan: landasan MENGIKUTI terrain — strip
+    // datar y=6 TERKUBUR di bawah terrain pulau (10,5 m di tengah, 42,6 m
+    // di ujung utara, 31,6 m di ujung selatan — diukur via heightAt);
+    // dulu strip itu hanya terlihat karena terrain selatan tidak
+    // ter-render (Uint16 overflow) dan laut y=0,4 ada di bawah strip.
+    // Kini strip diiris per 5 m, tiap iris duduk 0,5 m di atas terrain
+    // setempat, supaya marka tetap di atas tanah tanpa melayang.
+    // Posisi/panjang/lebar/heading landasan TIDAK berubah.
+    const half = this.length / 2;
+    const segLen = 5;
+    const groundYAt = (z) => (terrain ? terrain.heightAt(cx, z) : 6);
+    for (let z0 = cz - half; z0 < cz + half; z0 += segLen) {
+      const z1 = Math.min(cz + half, z0 + segLen);
+      const zm = (z0 + z1) / 2;
+      const top = groundYAt(zm) + 0.5;
+      b.addBox(cx, top - 0.6, zm, this.width, 1.2, z1 - z0 + 0.3, [0.22, 0.22, 0.24]);
     }
-    b.addBox(cx, y + 1.2, cz - this.length / 2 + 6, this.width - 6, 0.6, 8, [0.95, 0.80, 0.20]);
-    b.addBox(cx, y + 1.2, cz + this.length / 2 - 6, this.width - 6, 0.6, 8, [0.95, 0.80, 0.20]);
+    // Garis tengah putih + marka ujung kuning — diiris per segmen yang
+    // sama supaya mengikuti undakan strip (marka datar 14 m di atas
+    // strip yang menanjak akan mengapung / terkubur di ujungnya).
+    const inDash = (z) => {
+      for (let k = -4; k <= 4; k++) {
+        const mz = cz + k * 26;
+        if (z >= mz - 7 && z <= mz + 7) return true;
+      }
+      return false;
+    };
+    const inThreshold = (z) => (z >= cz - half + 2 && z <= cz - half + 10)
+      || (z >= cz + half - 10 && z <= cz + half - 2);
+    for (let z0 = cz - half; z0 < cz + half; z0 += segLen) {
+      const z1 = Math.min(cz + half, z0 + segLen);
+      const zm = (z0 + z1) / 2;
+      const top = groundYAt(zm) + 0.5;
+      if (inDash(zm)) {
+        b.addBox(cx, top + 0.2, zm, 3, 0.6, z1 - z0 + 0.3, [0.95, 0.95, 0.90]);
+      }
+      if (inThreshold(zm)) {
+        b.addBox(cx, top + 0.2, zm, this.width - 6, 0.6, z1 - z0 + 0.3, [0.95, 0.80, 0.20]);
+      }
+    }
     // Menara kecil + hanggar di sisi landasan. Ronde 4, blocker 3/6:
     // terrain di bawah menara BUKAN y=6 — menara berdiri di bukit
     // 22–27 m, jadi dasar y=6 terkubur dan hanya pucuknya yang nongol di
@@ -214,7 +248,8 @@ export class RunwayStrip {
     // muncul di atas tanah, bukan melayang.
     b.addBox(cx + 50, 30, cz - 80, 26, 14, 34, [0.55, 0.58, 0.62], [0.35, 0.55, 0.70]);
     this.mesh = b.build(renderer);
-    this.groundY = y + 1;
+    // Permukaan strip di tengah landasan (dipakai acuan pendaratan).
+    this.groundY = (terrain ? terrain.heightAt(cx, cz) : 6) + 0.5;
   }
 }
 

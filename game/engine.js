@@ -217,6 +217,12 @@ export class WebGLRenderer {
     const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
     if (!gl) throw new Error('WebGL tidak tersedia di browser ini');
     this.gl = gl;
+    // Ronde 2 revisi: terrain 120x120 = 86.400 vertex > batas index Uint16
+    // (65.535) — segitiga selatan z~930 indeksnya terlipat dan laut menutupi
+    // darat. WebGL1 butuh ekstensi OES_element_index_uint untuk index Uint32;
+    // kalau ekstensi tidak ada, createMesh memecah mesh jadi bagian-bagian
+    // kecil (fallback aman — render tetap utuh, hanya lebih banyak draw call).
+    this.uint32IndexExt = gl.getExtension('OES_element_index_uint');
     this.program = this.compileProgram(VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
     this.skyProgram = this.compileProgram(SKY_VERTEX_SHADER, SKY_FRAGMENT_SHADER);
     this.attrib = {
@@ -279,12 +285,34 @@ export class WebGLRenderer {
 
   createMesh(positions, normals, colors, indices) {
     const gl = this.gl;
+    // Index > 65.535 tidak muat di Uint16: pakai Uint32 bila ekstensi ada,
+    // kalau tidak ada pecah mesh jadi bagian-bagian <= 65.535 vertex.
+    let needsUint32 = false;
+    for (let i = 0; i < indices.length; i++) {
+      if (indices[i] > 65535) { needsUint32 = true; break; }
+    }
+    if (needsUint32 && this.uint32IndexExt) {
+      return this.createMeshBuffers(positions, normals, colors,
+        new Uint32Array(indices), gl.UNSIGNED_INT);
+    }
+    if (needsUint32) {
+      return this.createChunkedMesh(positions, normals, colors, indices);
+    }
+    return this.createMeshBuffers(positions, normals, colors,
+      new Uint16Array(indices), gl.UNSIGNED_SHORT);
+  }
+
+  // Satu mesh dari array vertex + array index yang sudah dipilih tipenya.
+  // indexType disimpan di mesh supaya drawMesh memakai tipe yang sama.
+  createMeshBuffers(positions, normals, colors, indexArray, indexType) {
+    const gl = this.gl;
     const mesh = {
       positionBuffer: gl.createBuffer(),
       normalBuffer: gl.createBuffer(),
       colorBuffer: gl.createBuffer(),
       indexBuffer: gl.createBuffer(),
-      indexCount: indices.length,
+      indexCount: indexArray.length,
+      indexType,
     };
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
@@ -293,8 +321,47 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.colorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
     return mesh;
+  }
+
+  // Fallback tanpa ekstensi Uint32: pecah segitiga jadi beberapa bagian,
+  // tiap bagian <= 65.535 vertex berbeda (vertex di-remap per bagian).
+  // Dipakai hanya kalau ekstensi tidak ada; di Chromium/SwiftShader
+  // ekstensi ini selalu tersedia, jadi jalur ini praktis tidak terpakai.
+  createChunkedMesh(positions, normals, colors, indices) {
+    const gl = this.gl;
+    const parts = [];
+    let chunk = { positions: [], normals: [], colors: [], indices: [], map: new Map() };
+    const flush = () => {
+      if (chunk.indices.length === 0) return;
+      parts.push(this.createMeshBuffers(chunk.positions, chunk.normals, chunk.colors,
+        new Uint16Array(chunk.indices), gl.UNSIGNED_SHORT));
+      chunk = { positions: [], normals: [], colors: [], indices: [], map: new Map() };
+    };
+    for (let t = 0; t + 2 < indices.length; t += 3) {
+      let fresh = 0;
+      for (let k = 0; k < 3; k++) {
+        if (!chunk.map.has(indices[t + k])) fresh++;
+      }
+      if (chunk.map.size + fresh > 65535) flush();
+      for (let k = 0; k < 3; k++) {
+        const vi = indices[t + k];
+        let li = chunk.map.get(vi);
+        if (li === undefined) {
+          li = chunk.map.size;
+          chunk.map.set(vi, li);
+          chunk.positions.push(positions[vi * 3], positions[vi * 3 + 1], positions[vi * 3 + 2]);
+          chunk.normals.push(normals[vi * 3], normals[vi * 3 + 1], normals[vi * 3 + 2]);
+          chunk.colors.push(colors[vi * 3], colors[vi * 3 + 1], colors[vi * 3 + 2]);
+        }
+        chunk.indices.push(li);
+      }
+    }
+    flush();
+    let total = 0;
+    for (const part of parts) total += part.indexCount;
+    return { parts, indexCount: total };
   }
 
   // Hapus buffer mesh sementara (peluru/tracer/partikel yang dibangun per frame)
@@ -302,8 +369,12 @@ export class WebGLRenderer {
   deleteMesh(mesh) {
     const gl = this.gl;
     if (!mesh) return;
-    for (const key of ['positionBuffer', 'normalBuffer', 'colorBuffer', 'indexBuffer']) {
-      if (mesh[key]) gl.deleteBuffer(mesh[key]);
+    // Mesh hasil fallback chunked punya .parts (tiap bagian buffer sendiri).
+    const parts = mesh.parts || [mesh];
+    for (const part of parts) {
+      for (const key of ['positionBuffer', 'normalBuffer', 'colorBuffer', 'indexBuffer']) {
+        if (part[key]) gl.deleteBuffer(part[key]);
+      }
     }
   }
 
@@ -397,17 +468,22 @@ export class WebGLRenderer {
     gl.uniform1f(this.uniform.fogFar, lighting.fogFar);
     gl.uniform3fv(this.uniform.cameraPos, new Float32Array(lighting.cameraPos));
     gl.uniform1f(this.uniform.emissive, lighting.emissive || 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
-    gl.enableVertexAttribArray(this.attrib.position);
-    gl.vertexAttribPointer(this.attrib.position, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normalBuffer);
-    gl.enableVertexAttribArray(this.attrib.normal);
-    gl.vertexAttribPointer(this.attrib.normal, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.colorBuffer);
-    gl.enableVertexAttribArray(this.attrib.color);
-    gl.vertexAttribPointer(this.attrib.color, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-    gl.drawElements(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0);
+    // Mesh chunked (fallback tanpa Uint32) digambar per bagian; mesh biasa
+    // satu bagian dengan indexType-nya sendiri (UNSIGNED_SHORT/INT).
+    const parts = mesh.parts || [mesh];
+    for (const part of parts) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, part.positionBuffer);
+      gl.enableVertexAttribArray(this.attrib.position);
+      gl.vertexAttribPointer(this.attrib.position, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, part.normalBuffer);
+      gl.enableVertexAttribArray(this.attrib.normal);
+      gl.vertexAttribPointer(this.attrib.normal, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, part.colorBuffer);
+      gl.enableVertexAttribArray(this.attrib.color);
+      gl.vertexAttribPointer(this.attrib.color, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, part.indexBuffer);
+      gl.drawElements(gl.TRIANGLES, part.indexCount, part.indexType, 0);
+    }
   }
 }
 
