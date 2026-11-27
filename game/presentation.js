@@ -18,7 +18,7 @@ export const SHOT_DEFS = {
   1: {
     mission: 1, gameT: 23, camera: 'chase',
     jet: { x: 30, y: 60, z: -60, heading: 14, pitch: 2, roll: -28, speed: 95, throttle: 0.85, fuel: 86, hull: 100 },
-    score: 240, gates: 1, combo: 1, discipline: 12,
+    score: 240, gates: 1, combo: 1, discipline: 12, kills: 0,
     banner: 'NGARAI FAJAR — TERBANG RENDAH, CEPAT, LEWATI 6 GATE',
     radio: [['MENARA BROMO', 'Gate pertama di depanmu. Rendah dan cepat, Merpati.']],
     afterburner: true, windText: 'ANGIN LEMBAH 20 KT DARI BARAT',
@@ -26,30 +26,47 @@ export const SHOT_DEFS = {
   2: {
     mission: 3, gameT: 107, camera: 'cockpit',
     jet: { x: 0, y: 72, z: -950, heading: 0, pitch: -3, roll: 0, speed: 70, throttle: 0.56, fuel: 68, hull: 100 },
-    score: 2140, gates: 0, combo: 2, discipline: 96,
+    score: 2140, gates: 0, combo: 2, discipline: 96, kills: 2,
     banner: 'DINDING PETIR — ILS APPROACH, LANDASAN PULAU BADAI',
     radio: [['MENARA BOROBUDUR', 'Merpati 1, kamu segaris glideslope. PAPI 2 merah 2 putih — on glide.']],
     afterburner: false, windText: 'WIND SHEAR 14 KT · HUJAN DERAS',
     approach: true, rain: 1, lightningFar: true,
   },
   3: {
-    mission: 3, gameT: 151, camera: 'chase',
-    jet: { x: 140, y: 150, z: -620, heading: 300, pitch: -2, roll: -18, speed: 88, throttle: 0.72, fuel: 54, hull: 90 },
-    score: 1860, gates: 0, combo: 3, discipline: 74,
-    banner: 'DINDING PETIR — TEMBUS BADAI, HANCURKAN CARRIER',
-    radio: [['ELANG-2', 'Petir di kananmu, jangan ke sana!'], ['CENDRAWASIH-3', 'Carrier di dalam dinding — ikuti petirnya.']],
-    afterburner: false, windText: 'WIND SHEAR 18 KT · PETIR AKTIF',
-    lightning: true, rain: 1, wallCrossed: true,
+    // M2 DOGFIGHT DI DALAM BADAI (bukan M3): drone Laron + wingman + flagship
+    // HARUS kelihatan di frame — diposisikan eksplisit di applyShot.
+    mission: 2, gameT: 151, camera: 'chase',
+    jet: { x: 300, y: 90, z: -620, heading: 0, pitch: -2, roll: -18, speed: 78, throttle: 0.72, fuel: 54, hull: 90 },
+    score: 3250, gates: 0, combo: 3, discipline: 88, kills: 2,
+    banner: 'BADAI KARANG — DOGFIGHT, TENGGELAMKAN KAPAL INDUK',
+    radio: [['ELANG-2', 'Merpati 1, gue dikejar 2 drone! Tolong!'], ['CENDRAWASIH-3', 'Kapal induk di depan — asap hitam, itu dia.']],
+    afterburner: false, windText: 'BADAI KARANG · HUJAN + PETIR',
+    lightning: true, rain: 1, storm: true,
   },
   4: {
+    // TOUCHDOWN / rollout di landasan pulau (bukan approach): LSO hanya boleh
+    // tampil SETELAH touchdown — di sini jet SUDAH mendarat (landed: true),
+    // jadi panel LSO tampil secara sah dengan TOUCHDOWN KT = SPD saat itu.
     mission: 3, gameT: 192, camera: 'chase',
-    jet: { x: 0, y: 65, z: -1080, heading: 0, pitch: -3, roll: 0, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
-    score: 4200, gates: 0, combo: 3, discipline: 128,
-    banner: 'SEMUA TARGET HANCUR — MENDARAT BUAT BANK SKOR',
+    jet: { x: 0, y: 45.5, z: -1330, heading: 0, pitch: 0, roll: -8, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
+    score: 4200, gates: 0, combo: 3, discipline: 128, kills: 5,
+    banner: 'MENDARAT — SKOR AMAN · LANDASAN PULAU BADAI',
     radio: [['MENARA BOROBUDUR', 'Merpati 1, landasan pulau di depan. PAPI menyala — bawa pulang.']],
     afterburner: false, windText: 'WIND SHEAR 12 KT · HUJAN',
-    approach: true, rain: 0.8, lso: true, wallCrossed: true, carrierDead: true,
-    stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 134, fuel: 41, score: '4,200' },
+    rain: 0.8, lso: true, wallCrossed: true, carrierDead: true, landed: true,
+    stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 126, fuel: 41, score: '4,200' },
+  },
+  5: {
+    // DEBRIEF (bukti, bukan shot dossier): layar grade + medal + modul,
+    // dipicu lewat jalur ASLI missions._finish() — bukan fabrikasi DOM.
+    mission: 3, gameT: 192, camera: 'chase',
+    jet: { x: 0, y: 45.5, z: -1300, heading: 0, pitch: 0, roll: -8, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
+    score: 4200, gates: 0, combo: 3, discipline: 128, kills: 5, killsByLightning: 2, wingmanSaved: true,
+    banner: 'DINDING PETIR — MISI SELESAI',
+    radio: [['MENARA BOROBUDUR', 'Merpati 1, selamat datang kembali. Skor di-bank.']],
+    afterburner: false, windText: 'WIND SHEAR 12 KT · HUJAN',
+    rain: 0.8, wallCrossed: true, carrierDead: true, landed: true, debrief: true,
+    stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 126, fuel: 41, score: '4,200' },
   },
 };
 
@@ -66,10 +83,17 @@ export class Staging {
     f.fuel = clamp(def.jet.fuel ?? f.fuel, 0, 100);
     f.hull = clamp(def.jet.hull ?? f.hull, 0, f.hullMax);
     f.flightTime = def.gameT;
-    f.vsi = def.jet.pitch < 0 ? -3 : 1;
+    // M2: G/AOA/VSI dari pose manuver — rumus SAMA dengan sim live
+    // (stagedInstruments), bukan angka tetap. Tiap shot beda karena
+    // pitch/roll/speed-nya beda.
+    const inst = f.stagedInstruments(def.jet.pitch, def.jet.roll, def.jet.speed);
+    f.vsi = inst.vsi; f.gLoad = inst.gLoad; f.aoa = inst.aoa;
     f.afterburner = def.afterburner;
     game.missions.score = def.score;
     game.missions.gatesPassed = def.gates;
+    game.missions.kills = def.kills || 0;
+    game.missions.killsByLightning = def.killsByLightning || 0;
+    game.missions.wingmanSaved = !!def.wingmanSaved;
     game.missions.discipline = def.discipline;
     game.juice.combo = def.combo;
     game.juice.multiplier = def.combo;
@@ -82,9 +106,60 @@ export class Staging {
       game.carrier.mesh.visible = false;
       game.missions.objectivesDone = 2;
     }
+    // M6: touchdown state (shot 4/5) — jet SUDAH mendarat di landasan.
+    if (def.landed) {
+      f.landed = true;
+      f.sinkRate = 2.1; f.centerlineError = 0.4; f.touchdownKt = 126;
+      game.missions.phase = 'done';
+      game.missions.objectivesDone = 2;
+    }
+    // Shot 3 (M2 di badai): cuaca badai dipaksa ke misi 2 (dinding + hujan
+    // + fog gelap) — staging saja, gameplay M2 live tidak berubah.
+    if (def.storm && game.weather) {
+      game.weather._buildStormWall();
+      game.weather._buildRain();
+      const fog = game.renderer.scene.fog;
+      if (fog) { fog.color.set(0x555a75); fog.near = 200; fog.far = 1300; }
+    }
+    // Shot 3 (M2): jet diposisikan RELATIF terhadap flagship aktual, dari arah
+    // dengan garis pandang BERSIH — cek segmen jet->flagship vs menara karst
+    // (r4: approach selatan terhalang karst (-80,-673) 53 m di depan jet dan
+    // karst (-154,-914) menempel flagship). Selatan diutamakan; kalau
+    // terhalang, coba barat/timur/utara.
+    if (def.mission === 2 && game.ships) {
+      const fl0 = game.ships.flagship();
+      const karsts = (game.world && game.world.karstSpots) || [];
+      const losClear = (jx, jz, fx, fz) => {
+        for (const k of karsts) {
+          const abx = fx - jx, abz = fz - jz;
+          const len2 = abx * abx + abz * abz;
+          let t = ((k.x - jx) * abx + (k.z - jz) * abz) / len2;
+          t = Math.max(0, Math.min(1, t));
+          const px = jx + abx * t, pz = jz + abz * t;
+          const dist = Math.hypot(k.x - px, k.z - pz);
+          const ySight = 90 - 84 * t;
+          if (dist < k.r + 12 && ySight < k.top) return false;
+        }
+        return true;
+      };
+      // [dx, dz, heading]: BARAT/TIMUR dulu (broadside!) — kapal memanjang
+      // utara-selatan; dari selatan ia terlihat END-ON (26 m saja, siluet
+      // kecil di depan karst), dari barat/timur sisi panjangnya (170 m)
+      // terbaca penuh sebagai kapal. Selatan/utara hanya cadangan.
+      // CATATAN SATUAN: flight.heading dalam DERAJAT (0=utara, 90=timur) —
+      // jangan pakai radian (π/2 = 1,57° → jet tetap menghadap utara).
+      const dirs = [[-280, 0, 90], [280, 0, -90], [0, 280, 0], [0, -280, 180]];
+      let picked = dirs[0];
+      for (const d of dirs) {
+        if (losClear(fl0.pos.x + d[0], fl0.pos.z + d[1], fl0.pos.x, fl0.pos.z)) { picked = d; break; }
+      }
+      f.pos.x = fl0.pos.x + picked[0]; f.pos.y = 90; f.pos.z = fl0.pos.z + picked[1];
+      f.heading = picked[2]; f.pitch = -2; f.roll = -18;
+      game.__shot3Dir = picked; // dipakai staging drone/wingman di bawah
+    }
     if (def.lightning && game.weather) {
-      game.weather.deterministicStrike(f.pos, def.jet.heading);
-      game.weather.flashAlpha = 0.5;
+      game.weather.deterministicStrike(f.pos, f.heading);
+      game.weather.flashAlpha = 0.3;
     }
     if (def.stagedLso) game.stagedLso = def.stagedLso;
     if (def.lightningFar && game.weather) {
@@ -99,8 +174,60 @@ export class Staging {
     if (def.rain && game.weather) game.weather.rainVisible = def.rain;
     // Gate M1: shot 1 sudah lewati gate 1.
     if (def.mission === 1 && game.world.gates[0]) game.world.gates[0].passed = true;
+    // Shot 3: drone Laron + wingman + flagship DIPOSISIKAN eksplisit di frame
+    // (bukan hanya teks) — relatif terhadap flagship aktual DAN arah approach
+    // yang terpilih: 3 drone di koridor antara jet dan flagship, 2 di sisi
+    // flagship; wingman formasi kiri-kanan jet (tegak lurus heading).
+    if (def.mission === 2 && game.drones && game.ships) {
+      const flag = game.ships.flagship();
+      const fx = flag.pos.x, fz = flag.pos.z;
+      const dir = game.__shot3Dir || [0, 280, 0];
+      const ax = dir[0] / 280, az = dir[1] / 280; // flagship -> jet
+      const lx = -az, lz = ax; // lateral
+      const droneSpots = [
+        [fx + ax * 200 + lx * 50, 110, fz + az * 200 + lz * 50],
+        [fx + ax * 160 - lx * 60, 100, fz + az * 160 - lz * 60],
+        [fx + ax * 110 + lx * 30, 140, fz + az * 110 + lz * 30],
+        [fx + lx * 90, 60, fz + lz * 90],
+        [fx - lx * 90, 70, fz - lz * 90],
+      ];
+      const droneHeading = Math.atan2(ax, -az); // menghadap pemain
+      game.drones.drones.forEach((d, i) => {
+        if (!droneSpots[i]) return;
+        d.pos.set(droneSpots[i][0], droneSpots[i][1], droneSpots[i][2]);
+        d.heading = droneHeading;
+        d.mesh.position.copy(d.pos);
+        d.mesh.rotation.set(0, droneHeading, 0);
+      });
+      const fhx = Math.sin(f.heading), fhz = -Math.cos(f.heading);
+      const rhx = Math.cos(f.heading), rhz = Math.sin(f.heading);
+      const wingSpots = [
+        [f.pos.x + fhx * 12 - rhx * 26, 86, f.pos.z + fhz * 12 - rhz * 26],
+        [f.pos.x + fhx * 8 + rhx * 26, 84, f.pos.z + fhz * 8 + rhz * 26],
+      ];
+      game.wingman.wingmen.forEach((w, i) => {
+        if (!wingSpots[i]) return;
+        w.pos.set(wingSpots[i][0], wingSpots[i][1], wingSpots[i][2]);
+        w.heading = f.heading;
+        w.mesh.position.copy(w.pos);
+        w.mesh.rotation.set(0, f.heading * Math.PI / 180, -0.25);
+      });
+      const fp = flag.pos;
+      game.juice.spawnSmoke(fp.clone().set(fp.x, 34, fp.z - 6), 3.2, 0x1a1a1a);
+      game.juice.spawnSmoke(fp.clone().set(fp.x - 4, 42, fp.z - 10), 4.0, 0x1a1a1a);
+      game.juice.spawnSmoke(fp.clone().set(fp.x + 4, 50, fp.z - 2), 4.8, 0x222222);
+    }
     // Posisikan kamera chase persis di belakang jet (komposisi hero).
     game.snapCameraToJet();
+    // Shot 5 (debrief): picu lewat jalur ASLI missions._finish() — grade +
+    // medal + skor dihitung kode nyata dari state staged, bukan fabrikasi.
+    // LSO di belakang overlay diselaraskan ke skor akhir (5001, bukan 4200).
+    if (def.debrief) {
+      game.missions._finish(true, game.missionCtx(), game.flight);
+      if (game.stagedLso) {
+        game.stagedLso = { ...game.stagedLso, score: Math.round(game.missions.score).toLocaleString('en-US') };
+      }
+    }
     window.__shotReady = false;
     game.shotFrames = 0;
     return true;

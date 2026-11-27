@@ -142,7 +142,7 @@ export class Game {
     if (id === 2) {
       this.drones = new DroneSquadron(worldScene, 5, { x: 300, z: -900, r: 420 }, 21);
       this.aa = new FlakBattery(worldScene, [[-520, -700, 70], [480, -900, 95], [120, -1150, 60]]);
-      this.ships = new FleetShips(worldScene, palette);
+      this.ships = new FleetShips(worldScene, palette, (x, z) => this.world.heightAt(x, z), this.world.karstSpots);
       this.carrier = null;
     } else if (id === 3) {
       this.drones = new DroneSquadron(worldScene, 4, { x: 0, z: -800, r: 380 }, 33);
@@ -494,8 +494,12 @@ export class Game {
   }
 
   _lsoInfo(approach) {
-    // Staging shot 4: panel LSO grade sudah ditentukan (OK 3-WIRE ala DECK ZERO).
-    if (this.stagedLso) return this.stagedLso;
+    // M6: panel LSO grade HANYA tampil SETELAH touchdown (gate pada state
+    // landed / fase done/failed). Panel "preview" pre-touchdown (grade '—',
+    // TOUCHDOWN KT sebelum roda menyentuh tanah) DIHAPUS — itulah yang tampil
+    // prematur di shot 4 r4 (213 FT, TOUCHDOWN 134 KT padahal SPD 126 KT).
+    // Staging shot 4/5: stagedLso hanya dipakai kalau flight.landed sudah true.
+    if (this.stagedLso && this.flight.landed) return this.stagedLso;
     const f = this.flight;
     const m = this.missions;
     if (m.phase === 'done' || m.phase === 'failed') {
@@ -509,16 +513,7 @@ export class Game {
         score: Math.round(m.score).toLocaleString('en-US'),
       };
     }
-    if (!approach || approach.dist > 300) return null;
-    const rwy = this.world.runways.find((r) => r.name === approach.rwy) || this.world.runways[0];
-    return {
-      grade: '—',
-      centerline: Math.abs(f.pos.x - rwy.x).toFixed(1),
-      sink: Math.max(0, -f.vsi).toFixed(1),
-      kt: Math.round(f.speed * 1.944),
-      fuel: Math.round(f.fuel),
-      score: Math.round(m.score).toLocaleString('en-US'),
-    };
+    return null;
   }
 
   _hudState() {
@@ -558,6 +553,7 @@ export class Game {
       popups: this.juice.popups,
       approach,
       lso: this._lsoInfo(approach),
+      cockpit: this.cameraMode === 'cockpit',
       combo: this.juice.combo,
       multiplier: this.juice.multiplier,
       clock: String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0'),
@@ -627,7 +623,7 @@ export class Game {
     } else {
       // Frozen (staging): ambient saja, deterministik.
       this.weather.update(0, t, f.pos, this.camera.position, this.renderer);
-      if (this.weather.rain) this.weather.rain.visible = this.params.shot === '2' || this.params.shot === '3' || this.params.shot === '4';
+      if (this.weather.rain) this.weather.rain.visible = this.params.shot === '2' || this.params.shot === '3' || this.params.shot === '4' || this.params.shot === '5';
     }
     // Frozen (staging): ambient dibekukan juga — deterministik penuh.
     this.world.update(this.frozen ? 0 : dt, this.frozen ? this.gameT : t);

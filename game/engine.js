@@ -40,15 +40,17 @@ export const DEG = Math.PI / 180;
 // --- Palet "golden-hour Indonesia": SATU keluarga, cahaya/waktu beda per misi ---
 export const PALETTES = {
   // M1 — fajar amber/mawar/emas, batu vulkanik gelap, kabut emas.
+  // Item 6: horizon lebih jenuh oranye + grade lebih hangat — golden-hour
+  // harus terasa hangat kayak Meridian Wings, bukan pucat.
   1: {
-    skyZen: [0.38, 0.26, 0.50], skyHor: [1.0, 0.66, 0.32],
+    skyZen: [0.45, 0.25, 0.45], skyHor: [1.0, 0.58, 0.24],
     fog: 0xf2a866, fogNear: 260, fogFar: 1500,
     sunColor: 0xffd9a0, sunI: 3.2, sunDir: [0.22, 0.20, -0.95], // fajar di utara — di depan jalur terbang
     hemiSky: 0x9a7a9e, hemiGround: 0x5a4030, hemiI: 1.7,
     fillColor: 0xffe0b8, fillI: 2.2, rimColor: 0xffb060, rimI: 1.2,
     terrainLow: [0.62, 0.66, 0.34], terrainMid: [0.68, 0.54, 0.32], terrainRock: [0.40, 0.32, 0.34],
     grass: [0.55, 0.64, 0.30], sea: null, cloud: 0xffe0b8, cloudEmissive: 0xffc890,
-    exposure: 1.30, gradeWarm: 0.10, gradeLift: 0.05,
+    exposure: 1.30, gradeWarm: 0.15, gradeLift: 0.05,
   },
   // M2 — siang turquoise/putih/hijau karst, laut biru, langit cerah.
   2: {
@@ -59,18 +61,18 @@ export const PALETTES = {
     fillColor: 0xd8ecff, fillI: 2.0, rimColor: 0xffe8b0, rimI: 0.7,
     terrainLow: [0.42, 0.58, 0.34], terrainMid: [0.36, 0.50, 0.30], terrainRock: [0.45, 0.45, 0.42],
     grass: [0.40, 0.60, 0.30], sea: 0x1a7f9e, cloud: 0xffffff, cloudEmissive: 0xe8f0ff,
-    exposure: 1.25, gradeWarm: 0.03, gradeLift: 0.03,
+    exposure: 1.25, gradeWarm: 0.07, gradeLift: 0.03,
   },
   // M3 — senja violet/indigo/oranye, langit gelap ungu, celah oranye di horizon.
   3: {
     skyZen: [0.10, 0.08, 0.26], skyHor: [0.85, 0.38, 0.22],
     fog: 0x4a3560, fogNear: 180, fogFar: 1100,
-    sunColor: 0xff9040, sunI: 2.2, sunDir: [-0.30, 0.10, -0.94], // senja di barat-laut — di depan jalur
+    sunColor: 0xff9040, sunI: 2.6, sunDir: [-0.30, 0.10, -0.94], // senja di barat-laut — di depan jalur
     hemiSky: 0x5a4a7a, hemiGround: 0x2a2030, hemiI: 1.2,
     fillColor: 0xc8a0ff, fillI: 1.3, rimColor: 0xff8040, rimI: 1.2,
     terrainLow: [0.22, 0.19, 0.26], terrainMid: [0.25, 0.21, 0.24], terrainRock: [0.15, 0.12, 0.19],
     grass: [0.20, 0.22, 0.19], sea: 0x1a2340, cloud: 0x6a5a80, cloudEmissive: 0x3a2a50,
-    exposure: 1.22, gradeWarm: 0.08, gradeLift: 0.04,
+    exposure: 1.22, gradeWarm: 0.12, gradeLift: 0.04,
   },
 };
 
@@ -207,8 +209,10 @@ export class FlightRenderer {
     this.sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
     this.scene.add(this.sky);
     // Matahari BESAR + glow (perbaikan probe: matahari kecil/pucat).
-    this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(95, 20, 14),
-      new THREE.MeshBasicMaterial({ color: 0xfff6cc, fog: false }));
+    // Item 6: cakram 95 -> 135 + glow 900 -> 1300 — matahari harus terasa
+    // besar dan hangat di golden-hour, bukan titik pucat ketutup gate.
+    this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(135, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffe9a8, fog: false }));
     this.sunDisc.position.copy(this.sunDir).multiplyScalar(2050);
     this.scene.add(this.sunDisc);
     // Glow radial (canvas texture, additive) — halo hangat di sekitar matahari.
@@ -222,9 +226,9 @@ export class FlightRenderer {
     const tex = new THREE.CanvasTexture(cv);
     this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: tex, transparent: true, depthWrite: false, fog: false,
-      blending: THREE.AdditiveBlending, opacity: 0.9,
+      blending: THREE.AdditiveBlending, opacity: 1.0,
     }));
-    this.sunGlow.scale.set(900, 900, 1);
+    this.sunGlow.scale.set(1100, 1100, 1);
     this.sunGlow.position.copy(this.sunDir).multiplyScalar(2040);
     this.scene.add(this.sunGlow);
   }

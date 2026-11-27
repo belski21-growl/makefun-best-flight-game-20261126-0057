@@ -120,8 +120,15 @@ export class FlightModel {
     let climb = Math.sin(this.pitch * DEG) * this.speed;
     if (this.stalled) climb -= 14;
     if (this.speed < 25) climb -= (25 - this.speed) * 0.35; // jatuh pelan tanpa gas
+    // --- G/AOA/VSI dari manuver aktual (bukan angka tetap): G dari bank,
+    // VSI = laju perubahan ketinggian (turunan ALT), AOA = pitch − sudut
+    // lintasan + trim lift (terbang pelan butuh AOA lebih besar — itulah yang
+    // membuat AOA hidup: berubah tiap kali kecepatan/manouver berubah).
+    // (VSI di-smooth dari climb — baris ini sempat terhapus saat edit AOA,
+    // akibatnya jet tidak pernah naik dan autopilot jatuh di detik ke-3.)
     this.vsi = lerp(this.vsi, climb, clamp(dt * 3, 0, 1));
-    this.aoa = clamp(this.pitch - Math.atan2(this.vsi, Math.max(this.speed, 1)) * (180 / Math.PI), -4, 22);
+    const liftTrim = clamp((cruise - this.speed) * 0.25, 0, 8);
+    this.aoa = clamp(this.pitch - Math.atan2(this.vsi, Math.max(this.speed, 1)) * (180 / Math.PI) + liftTrim, -4, 22);
 
     // --- Gerak + angin (lembah M1 / shear M3) sebagai gaya lateral. ---
     const fwd = this.forward();
@@ -181,6 +188,20 @@ export class FlightModel {
     if (this.hull <= 0) this.crashed = true;
   }
 
+  // Instrumen dari pose manuver (pitch/roll/speed) — rumus SAMA dengan update()
+  // live, dipakai staging screenshot supaya nilai G/AOA/VSI di shot adalah
+  // snapshot fisika yang konsisten, bukan angka tetap. VSI = sin(pitch)*speed
+  // (laju perubahan ketinggian), G = 1/cos(roll), AOA = pitch − γ + trim lift.
+  stagedInstruments(pitchDeg, rollDeg, speed) {
+    const cruise = this.variant.maxSpeed * 0.55;
+    const vsi = Math.sin(pitchDeg * DEG) * speed; // m/s
+    const g = clamp(1 / Math.max(Math.cos(rollDeg * DEG), 0.35), 1, 6.5);
+    const gamma = Math.atan2(vsi, Math.max(speed, 1)) * (180 / Math.PI);
+    const liftTrim = clamp((cruise - speed) * 0.25, 0, 8);
+    const aoa = clamp(pitchDeg - gamma + liftTrim, -4, 22);
+    return { vsi, gLoad: g, aoa };
+  }
+
   // Nilai tampil (HUD): semua dari state — bukan angka tetap.
   display() {
     const vsiFt = Math.round(this.vsi * 196.85); // m/s -> ft/min
@@ -192,7 +213,7 @@ export class FlightModel {
       fuel: Math.round(this.fuel),
       hull: Math.round(this.hull),
       hullMax: this.hullMax,
-      g: this.gLoad.toFixed(1),
+      g: this.gLoad.toFixed(2),
       aoa: this.aoa.toFixed(1),
       vsi: vsiFt,
       vsiSigned: (vsiFt < 0 ? '−' : vsiFt > 0 ? '+' : '') + String(Math.abs(vsiFt)), // tanda dari nilai BULAT (m7)

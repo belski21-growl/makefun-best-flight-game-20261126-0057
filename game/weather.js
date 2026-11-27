@@ -36,18 +36,28 @@ export class WeatherSystem {
 
   _buildStormWall() {
     // Dinding badai: cincin awan gelap raksasa (koridor yang harus ditembus).
+    // Perbaikan B2: bola LEBIH KECIL (40-85, bukan 55-125) + segmen 12x9
+    // (bukan 8x6) + material lebih gelap — faset raksasa yang kena matahari
+    // rendah tidak lagi terbaca sebagai bidang kertas peach. Celah di sisi
+    // UTARA (koridor approach landasan, ±0,32 rad dari utara) supaya landasan
+    // terlihat lewat dinding, bukan tertutup bola awan.
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x2a2140, emissive: 0x1a1230, emissiveIntensity: 0.25,
+      color: 0x241a33, emissive: 0x140e22, emissiveIntensity: 0.2,
       flatShading: true, roughness: 1, transparent: true, opacity: 0.92,
     });
-    const geo = new THREE.SphereGeometry(1, 8, 6);
+    const geo = new THREE.SphereGeometry(1, 12, 9);
     const rnd = mulberry32(31337);
-    for (let i = 0; i < 46; i++) {
-      const a = (i / 46) * Math.PI * 2 + rnd() * 0.12;
+    for (let i = 0; i < 54; i++) {
+      const a = (i / 54) * Math.PI * 2 + rnd() * 0.12;
+      // Celah utara: jangan taruh bola di jalur approach (sudut -PI/2 = utara).
+      let da = a + Math.PI / 2;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      if (Math.abs(da) < 0.32) continue;
       const r = this.stormRadius + (rnd() - 0.5) * 130;
       const y = 60 + rnd() * 320;
       const s = new THREE.Mesh(geo, mat);
-      const rad = 55 + rnd() * 70;
+      const rad = 40 + rnd() * 45;
       s.scale.set(rad, rad * 1.5, rad);
       s.position.set(this.stormCenter.x + Math.cos(a) * r, y, this.stormCenter.z + Math.sin(a) * r);
       this.group.add(s);
@@ -92,25 +102,28 @@ export class WeatherSystem {
     const rnd = mulberry32(seed);
     const mat = new THREE.MeshBasicMaterial({ color: 0xf4f8ff });
     const matGlow = new THREE.MeshBasicMaterial({
-      color: 0x9db8ff, transparent: true, opacity: 0.45,
+      color: 0x9db8ff, transparent: true, opacity: 0.35,
     });
     const g = new THREE.Group();
-    const segs = 9;
+    const segs = 13;
     let prev = from.clone();
     for (let i = 1; i <= segs; i++) {
       const t = i / segs;
       const p = new THREE.Vector3(
-        lerp(from.x, to.x, t) + (i < segs ? (rnd() - 0.5) * 26 : 0),
+        lerp(from.x, to.x, t) + (i < segs ? (rnd() - 0.5) * 34 : 0),
         lerp(from.y, to.y, t),
-        lerp(from.z, to.z, t) + (i < segs ? (rnd() - 0.5) * 26 : 0),
+        lerp(from.z, to.z, t) + (i < segs ? (rnd() - 0.5) * 34 : 0),
       );
       const dir = new THREE.Vector3().subVectors(p, prev);
       const len = dir.length();
-      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, len, 5), mat);
+      // Inti tipis tapi TERLIHAT (0,40 + halo 1,1): zigzag yang terbaca
+      // sebagai petir dari 100+ m — 0,22 terlalu tipis (hilang di frame),
+      // 0,55 terlalu tebal (pita). Halo redup memberi glow tanpa pita.
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, len, 5), mat);
       cyl.position.copy(prev).addScaledVector(dir, 0.5);
       cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
       g.add(cyl);
-      const halo = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, len, 5), matGlow);
+      const halo = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, len, 5), matGlow);
       halo.position.copy(cyl.position);
       halo.quaternion.copy(cyl.quaternion);
       g.add(halo);
@@ -118,18 +131,25 @@ export class WeatherSystem {
       if (i === 5) {
         const bp = new THREE.Vector3(p.x + 18, p.y - 20, p.z + 8);
         const bd = new THREE.Vector3().subVectors(bp, p);
-        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, bd.length(), 4), mat);
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, bd.length(), 4), mat);
+        branch.position.copy(p).addScaledVector(bd, 0.5);
+        branch.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), bd.clone().normalize());
+        g.add(branch);
+      }
+      // Cabang kedua (ke arah berlawanan) — petir bercabang, bukan garis lurus.
+      if (i === 9) {
+        const bp = new THREE.Vector3(p.x - 22, p.y - 14, p.z - 10);
+        const bd = new THREE.Vector3().subVectors(bp, p);
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, bd.length(), 4), mat);
         branch.position.copy(p).addScaledVector(bd, 0.5);
         branch.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), bd.clone().normalize());
         g.add(branch);
       }
       prev = p;
     }
-    // Bola cahaya di titik sambaran.
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(9, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
-    orb.position.copy(to);
-    g.add(orb);
+    // TIDAK ada bola cahaya di titik sambaran (bola r=9 adalah cakram putih
+    // ~70 px di shot 3 — artefak, bukan petir). Kilat layar + point light
+    // sudah memberi dampak sambaran.
     this.group.add(g);
     this.bolt = g;
     this.boltLife = 0.5; // bolt terlihat 0,5 dtk

@@ -87,7 +87,7 @@ export class HeadsUpDisplay {
 
     // --- Blok status kanan-atas: mode THR, RWY+PAPI saat approach, peringatan. ---
     this._panel(W - 268, 62, 258, 66);
-    const mode = d.ab ? 'AFTERBURNER' : (d.thr > 70 ? 'CRUISE CEPAT' : 'CRUISE');
+    const mode = d.ab ? 'AFTERBURNER' : 'CRUISE'; // m4: 'CRUISE CEPAT' tidak konsisten bahasanya
     this._text('MODE: ' + mode, W - 258, 76, 12, d.ab ? '#ff9a3d' : '#ffcf6a', 'left', true);
     this._text(s.statusLine2 || 'SISTEM NORMAL', W - 258, 94, 11, '#cfe0e8', 'left');
     const warn = [];
@@ -194,8 +194,11 @@ export class HeadsUpDisplay {
     }
     if (d.ab) this._text('AFTERBURNER', W / 2, H - 138, 15, '#ff9a3d', 'center', true);
 
-    // --- Chip target berikut: ikut ring TERLIHAT terdekat; kalau di luar frame -> panah tepi. ---
-    if (s.target) {
+    // --- Chip target berikut: ikut ring TERLIHAT terdekat; kalau di luar frame -> panah tepi.
+    // Chip proyeksi disembunyikan saat endBanner tampil (misi selesai) —
+    // chip menabrak panel "MENDARAT — SKOR AMAN" di tengah frame (shot 4).
+    // Bar chip atas (di bawah kompas) tetap tampil.
+    if (s.target && !s.endBanner) {
       const p = this._project(s.target.pos, s.camera);
       if (p && p.z < 1 && Math.abs(p.x) < 1.05 && Math.abs(p.y) < 1.05) {
         const gx = (p.x * 0.5 + 0.5) * W, gy = (0.5 - p.y * 0.5) * H;
@@ -230,14 +233,22 @@ export class HeadsUpDisplay {
 
     // --- Label gate 3D (pool 3, proyeksi nyata). Gate yang jadi target saat ini
     // TIDAK diberi label 3D — chip target di dekat ring sudah menampilkannya.
+    // B3: tiap label diberi offset vertikal BERBEDA (stagger -34/-66/-98 px)
+    // + backing gelap, supaya label tidak numpuk di satu titik dan teks kecil
+    // tetap kebaca di atas emas/langit terang.
     if (s.gateLabels) {
-      for (const gl of s.gateLabels.slice(0, 3)) {
+      for (let li = 0; li < s.gateLabels.slice(0, 3).length; li++) {
+        const gl = s.gateLabels[li];
         if (s.target && gl.pos.x === s.target.pos.x && gl.pos.z === s.target.pos.z) continue;
         const p = this._project(gl.pos, s.camera);
         if (!p || p.z >= 1) continue;
         const gx = (p.x * 0.5 + 0.5) * W, gy = (0.5 - p.y * 0.5) * H;
         if (gx < 40 || gx > W - 40 || gy < 40 || gy > H - 40) continue;
-        this._text(gl.label, gx, gy - 30, 12, '#ffd76a', 'center', true);
+        const oy = -34 - li * 32;
+        c.font = '700 12px "Segoe UI", Arial, sans-serif';
+        const mtw = c.measureText(gl.label).width + 18;
+        this._panel(gx - mtw / 2, gy + oy - 11, mtw, 22, 0.7);
+        this._text(gl.label, gx, gy + oy, 12, '#ffd76a', 'center', true);
       }
     }
 
@@ -273,12 +284,25 @@ export class HeadsUpDisplay {
       this._text('SORTIE SCORE  ' + s.lso.score, W - 258, H - 152, 12, '#ffd76a', 'left', true);
     }
 
-    // --- Radio chatter (bawah-tengah, naik 20 px supaya tidak tertutup chip target). ---
+    // --- Radio chatter (bawah-tengah, naik 20 px supaya tidak tertutup chip target).
+    // m1: di mode kokpit, teks digeser ke kiri (pusat -130 px) + diberi
+    // backing gelap supaya terbaca di atas bola attitude / radar scope —
+    // tanpa backing, teks kuning pucat di atas bola tan hampir tak terbaca.
     let ry = H - 116;
+    const radioX = s.cockpit ? W / 2 - 130 : W / 2;
     for (let i = this.radioLines.length - 1; i >= 0; i--) {
       const rl = this.radioLines[i];
+      const txt = rl.speaker + ': ' + rl.text;
       c.globalAlpha = clamp(rl.life / 2, 0, 1);
-      this._text(rl.speaker + ': ' + rl.text, W / 2, ry, 12, '#cfe0e8', 'center');
+      if (s.cockpit) {
+        c.font = '12px system-ui, sans-serif';
+        const tw = c.measureText(txt).width;
+        c.fillStyle = 'rgba(4,10,16,0.62)';
+        c.beginPath();
+        c.roundRect(radioX - tw / 2 - 9, ry - 15, tw + 18, 20, 5);
+        c.fill();
+      }
+      this._text(txt, radioX, ry, 12, '#cfe0e8', 'center');
       c.globalAlpha = 1;
       ry -= 20;
     }

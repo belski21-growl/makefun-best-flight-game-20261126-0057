@@ -188,43 +188,94 @@ export class FlakBattery {
 }
 
 export class FleetShips {
-  constructor(scene, palette) {
+  constructor(scene, palette, heightAt, karstSpots) {
     this.scene = scene;
     this.ships = [];
     this.smoke = [];
+    // Kapal HARUS di air: cari titik heightAt < 1,0 di sekitar posisi
+    // desain (spiral 500 m). Ambang 1,0 = di bawah permukaan laut (y=1,2);
+    // ambang -0,5 GAGAL total (flagship r4 tetap di (300,-900)) karena
+    // koridor approach landasan meratakan tanah di |x|<120 ke y=34 dan ekor
+    // gaussian pulau menjaga h ~0..+5 di selat antar pulau. Titik juga harus
+    // bersih dari menara karst (pusat kapal > r karst + 30 m) — air di
+    // (-120,-900) ternyata di dalam jejak karst (-154,-914, r=43), kapal
+    // tertutup batu dari kamera.
+    const karstClear = (x, z) => {
+      if (!karstSpots) return true;
+      for (const k of karstSpots) {
+        if (Math.hypot(x - k.x, z - k.z) < k.r + 30) return false;
+      }
+      return true;
+    };
+    const waterSpot = (x, z, maxR = 500) => {
+      if (!heightAt || (heightAt(x, z) < 1.0 && karstClear(x, z))) return [x, z];
+      for (let r = 20; r <= maxR; r += 20) {
+        for (let a = 0; a < 16; a++) {
+          const ang = (a / 16) * Math.PI * 2;
+          const nx = x + Math.cos(ang) * r, nz = z + Math.sin(ang) * r;
+          if (heightAt(nx, nz) < 1.0 && karstClear(nx, nz)) return [nx, nz];
+        }
+      }
+      return [x, z];
+    };
     const hullMat = new THREE.MeshStandardMaterial({ color: 0x3a4148, flatShading: true, roughness: 0.7, metalness: 0.4 });
     const deckMat = new THREE.MeshStandardMaterial({ color: 0x2a2f34, flatShading: true, roughness: 0.8 });
-    // Flagship: besar, berasap, butuh 3 bom tukik ATAU 6 misil.
+    // Flagship: besar, berasap, butuh 3 bom tukik ATAU 6 misil. Terbaca sebagai
+    // kapal perang: lambung + garis + haluan + menara + jendela jembatan + tiang
+    // radar + cerobong + lampu dek.
     const flag = new THREE.Group();
     const hull = new THREE.Mesh(new THREE.BoxGeometry(26, 9, 120), hullMat);
     hull.position.y = 4.5; flag.add(hull);
+    for (const s of [-1, 1]) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 118),
+        new THREE.MeshStandardMaterial({ color: 0x8a2a20, flatShading: true, roughness: 0.7 }));
+      stripe.position.set(s * 13.2, 5, 0); flag.add(stripe);
+    }
     const bow = new THREE.Mesh(new THREE.ConeGeometry(13, 26, 4), hullMat);
     bow.rotation.x = -Math.PI / 2; bow.rotation.y = Math.PI / 4;
     bow.position.set(0, 4.5, -72); flag.add(bow);
     const tower = new THREE.Mesh(new THREE.BoxGeometry(10, 16, 14), deckMat);
     tower.position.set(0, 16, 8); flag.add(tower);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(10.5, 2.6, 14.5),
+      new THREE.MeshStandardMaterial({ color: 0x9fd8ff, emissive: 0x6fb8e8, emissiveIntensity: 1.6 }));
+    bridge.position.set(0, 22, 8); flag.add(bridge);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.9, 10, 6), deckMat);
+    mast.position.set(0, 28, 8); flag.add(mast);
+    const radarBar = new THREE.Mesh(new THREE.BoxGeometry(8, 0.7, 1), deckMat);
+    radarBar.position.set(0, 33, 8); flag.add(radarBar);
     const stack = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3, 12, 8), deckMat);
     stack.position.set(0, 22, -6); flag.add(stack);
-    flag.position.set(300, 1.2, -900);
+    // Lampu dek (deret kuning).
+    const deckLampMat = new THREE.MeshStandardMaterial({ color: 0xffc860, emissive: 0xffa020, emissiveIntensity: 1.8 });
+    for (let z = -50; z <= 50; z += 25) {
+      for (const s of [-1, 1]) {
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.2), deckLampMat);
+        lamp.position.set(s * 12.5, 9.4, z); flag.add(lamp);
+      }
+    }
+    // Cari air terbuka buat flagship (posisi desain (300,-900) itu daratan).
+    const [fx, fz] = waterSpot(300, -900);
+    flag.position.set(fx, 1.2, fz);
     flag.traverse((m) => { m.castShadow = true; });
     scene.add(flag);
     this.ships.push({
-      mesh: flag, pos: new THREE.Vector3(300, 6, -900), hp: 6, maxHp: 6, alive: true,
+      mesh: flag, pos: new THREE.Vector3(fx, 6, fz), hp: 6, maxHp: 6, alive: true,
       kind: 'flagship', name: 'KAPAL INDUK', bombHits: 0, smokeTimer: 0,
     });
     // Kapal kecil (AA) — target bonus.
     const smallDefs = [[120, -700], [480, -1050], [180, -1150]];
     smallDefs.forEach(([x, z], i) => {
+      const [sx, sz] = waterSpot(x, z);
       const s = new THREE.Group();
       const h = new THREE.Mesh(new THREE.BoxGeometry(10, 5, 34), hullMat);
       h.position.y = 2.5; s.add(h);
       const t = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 6), deckMat);
       t.position.set(0, 6, 4); s.add(t);
-      s.position.set(x, 1.2, z);
+      s.position.set(sx, 1.2, sz);
       s.traverse((m) => { m.castShadow = true; });
       scene.add(s);
       this.ships.push({
-        mesh: s, pos: new THREE.Vector3(x, 4, z), hp: 2, maxHp: 2, alive: true,
+        mesh: s, pos: new THREE.Vector3(sx, 4, sz), hp: 2, maxHp: 2, alive: true,
         kind: 'escort', name: 'KAPAL KECIL ' + (i + 1), bombHits: 0, smokeTimer: 0,
       });
     });
@@ -288,28 +339,72 @@ export class StormCarrier {
   constructor(scene) {
     this.scene = scene;
     const g = new THREE.Group();
-    const hullMat = new THREE.MeshStandardMaterial({ color: 0x2e3440, flatShading: true, roughness: 0.6, metalness: 0.5 });
-    const deckMat = new THREE.MeshStandardMaterial({ color: 0x1e222a, flatShading: true, roughness: 0.8 });
-    // Pesawat induk raksasa melayang di dinding badai.
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(34, 12, 150), hullMat);
+    const hullMat = new THREE.MeshStandardMaterial({ color: 0x39404e, flatShading: true, roughness: 0.6, metalness: 0.5 });
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x232830, flatShading: true, roughness: 0.8 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0x8a2a20, flatShading: true, roughness: 0.7 });
+    const winMat = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, emissive: 0x6fb8e8, emissiveIntensity: 1.6 });
+    // Pesawat induk raksasa melayang di dinding badai — TERBACA sebagai kapal:
+    // lambung + garis merah + dek + island/menara + cerobong berasap + jet parkir.
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(40, 14, 170), hullMat);
     hull.position.y = 0; g.add(hull);
-    const bow = new THREE.Mesh(new THREE.ConeGeometry(17, 30, 4), hullMat);
+    // Garis lambung merah (kiri-kanan) — siluet kapal, bukan balok abu-abu.
+    for (const s of [-1, 1]) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.4, 168), stripeMat);
+      stripe.position.set(s * 20.2, 2, 0); g.add(stripe);
+    }
+    const bow = new THREE.Mesh(new THREE.ConeGeometry(20, 34, 4), hullMat);
     bow.rotation.x = -Math.PI / 2; bow.rotation.y = Math.PI / 4;
-    bow.position.set(0, 0, -88); g.add(bow);
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(12, 20, 16), deckMat);
-    tower.position.set(0, 15, 12); g.add(tower);
+    bow.position.set(0, 0, -100); g.add(bow);
+    // Dek penerbangan (lebih lebar dari lambung, abu terang).
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(46, 2.5, 162), deckMat);
+    deck.position.y = 8; g.add(deck);
+    // Garis tengah dek + marka pendaratan.
+    const centerLine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 150),
+      new THREE.MeshStandardMaterial({ color: 0xd8c860, emissive: 0x8a7a20, emissiveIntensity: 0.6 }));
+    centerLine.position.set(0, 9.4, 0); g.add(centerLine);
+    // Island / menara komando (kanan dek) + jendela jembatan menyala.
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(14, 26, 18), deckMat);
+    tower.position.set(12, 21, 12); g.add(tower);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(14.5, 3, 18.5), winMat);
+    bridge.position.set(12, 30, 12); g.add(bridge);
+    // Tiang radar + antena putar di atas menara.
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 12, 6), hullMat);
+    mast.position.set(12, 40, 12); g.add(mast);
+    const radarBar = new THREE.Mesh(new THREE.BoxGeometry(10, 0.8, 1.2), deckMat);
+    radarBar.position.set(12, 46, 12); g.add(radarBar);
+    // Cerobong berasap (kiri menara) + 3 gumpal asap statis.
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.6, 14, 8), deckMat);
+    stack.position.set(-12, 16, -8); g.add(stack);
+    const smokeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, flatShading: true, roughness: 1, transparent: true, opacity: 0.75 });
+    this.smokePuffs = [];
+    [[-12, 26, -8, 5], [-14, 32, -10, 6.5], [-10, 39, -6, 8]].forEach(([x, y, z, r]) => {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), smokeMat);
+      puff.position.set(x, y, z); puff.scale.y = 1.3; g.add(puff);
+      this.smokePuffs.push(puff);
+    });
+    // Jet parkir di dek (2 siluet kecil) — ini kapal induk, bukan balok.
+    const jetMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, flatShading: true, roughness: 0.6 });
+    [[-12, -40], [10, -55]].forEach(([x, z]) => {
+      const pj = new THREE.Group();
+      const fus = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 4, 6), jetMat);
+      fus.rotation.x = Math.PI / 2; pj.add(fus);
+      const w = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.15, 1.4), jetMat);
+      w.position.z = -0.5; pj.add(w);
+      pj.position.set(x, 10.2, z);
+      g.add(pj);
+    });
     // Inti bercahaya = titik lemah.
-    const core = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 10),
+    const core = new THREE.Mesh(new THREE.SphereGeometry(8, 12, 10),
       new THREE.MeshStandardMaterial({ color: 0xff4040, emissive: 0xff2020, emissiveIntensity: 2.6 }));
     core.position.set(0, 0, 30);
     g.add(core);
     this.core = core;
-    // Lampu-lampu kecil di sepanjang dek.
-    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffc860, emissive: 0xffa020, emissiveIntensity: 1.6 });
-    for (let z = -60; z <= 60; z += 30) {
+    // Lampu-lampu dek (deret kuning, kiri-kanan).
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffc860, emissive: 0xffa020, emissiveIntensity: 1.8 });
+    for (let z = -70; z <= 70; z += 28) {
       for (const s of [-1, 1]) {
-        const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), lampMat);
-        lamp.position.set(s * 17.5, 6.5, z);
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.6), lampMat);
+        lamp.position.set(s * 22.5, 9.6, z);
         g.add(lamp);
       }
     }
@@ -331,6 +426,11 @@ export class StormCarrier {
     this.mesh.position.x = Math.sin(this.drift * 0.22) * 24;
     this.pos.copy(this.mesh.position);
     this.core.material.emissiveIntensity = 2.2 + 0.9 * Math.sin(t * 4);
+    // Asap cerobong mengembang pelan.
+    if (this.smokePuffs) for (let i = 0; i < this.smokePuffs.length; i++) {
+      const p = this.smokePuffs[i];
+      p.position.y += Math.sin(t * 0.7 + i * 2) * 0.008;
+    }
   }
 
   hitCheck(origin, dirVec, range = 500) {

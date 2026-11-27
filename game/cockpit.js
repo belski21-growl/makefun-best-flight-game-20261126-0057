@@ -28,6 +28,10 @@ export class RealCockpit {
 
   _buildFrame() {
     // Frame kanopi 3D: tiang kiri/kanan + atas + pilar samping + dasbor bawah.
+    // POSISI DI DALAM frustum (FOV 62°: setengah-tinggi terlihat di z=0,78
+    // hanya ~0,47 — frame r4 di y ±0,62/z=-0,95 jatuh DI LUAR frame, makanya
+    // kokpit terbaca sebagai HUD 2D tanpa kanopi). Tiang lebih tebal supaya
+    // terbaca sebagai struktur, bukan garis.
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c2026, roughness: 0.7, metalness: 0.4 });
     const dashMat = new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.85, metalness: 0.2 });
     const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
@@ -37,23 +41,28 @@ export class RealCockpit {
       this.group.add(m);
       return m;
     };
-    // Tiang kanopi kiri/kanan (miring ke dalam).
-    add(new THREE.BoxGeometry(0.07, 1.05, 0.09), frameMat, -0.62, 0.12, -0.95, 0, 0, 0.12);
-    add(new THREE.BoxGeometry(0.07, 1.05, 0.09), frameMat, 0.62, 0.12, -0.95, 0, 0, -0.12);
-    // Bar atas kanopi.
-    add(new THREE.BoxGeometry(1.34, 0.07, 0.09), frameMat, 0, 0.62, -0.95);
+    // Tiang kanopi kiri/kanan (miring ke dalam, tebal 0,10 — terbaca).
+    add(new THREE.BoxGeometry(0.10, 1.0, 0.10), frameMat, -0.56, 0.10, -0.78, 0, 0, 0.10);
+    add(new THREE.BoxGeometry(0.10, 1.0, 0.10), frameMat, 0.56, 0.10, -0.78, 0, 0, -0.10);
+    // Bar atas kanopi (di dalam frame atas).
+    add(new THREE.BoxGeometry(1.22, 0.09, 0.10), frameMat, 0, 0.44, -0.78);
     // Pilar samping bawah.
-    add(new THREE.BoxGeometry(0.09, 0.5, 0.09), frameMat, -0.78, -0.18, -0.85, 0, 0.3, 0);
-    add(new THREE.BoxGeometry(0.09, 0.5, 0.09), frameMat, 0.78, -0.18, -0.85, 0, -0.3, 0);
-    // Dasbor bawah (lebar, gelap).
-    add(new THREE.BoxGeometry(1.75, 0.34, 0.16), dashMat, 0, -0.52, -0.88);
+    add(new THREE.BoxGeometry(0.10, 0.5, 0.10), frameMat, -0.72, -0.20, -0.72, 0, 0.3, 0);
+    add(new THREE.BoxGeometry(0.10, 0.5, 0.10), frameMat, 0.72, -0.20, -0.72, 0, -0.3, 0);
+    // Dasbor bawah (lebar, gelap — panel radar/attitude/ENG DUDUK di atasnya).
+    add(new THREE.BoxGeometry(1.95, 0.42, 0.16), dashMat, 0, -0.44, -0.88);
+    // Glareshield: bibir atas dasbor (coaming) — garis gelap pemisah kaca/dasbor.
+    add(new THREE.BoxGeometry(1.95, 0.08, 0.12), frameMat, 0, -0.20, -0.88);
+    // Konsol samping bawah (kiri/kanan) — dasbor terasa 3D, bukan papan.
+    add(new THREE.BoxGeometry(0.42, 0.22, 0.14), dashMat, -0.78, -0.38, -0.82, 0, 0.25, 0);
+    add(new THREE.BoxGeometry(0.42, 0.22, 0.14), dashMat, 0.78, -0.38, -0.82, 0, -0.25, 0);
     // Kaca depan samping (transparan, kilap tipis) — memberi rasa kanopi.
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x8ab8d8, transparent: true, opacity: 0.07, roughness: 0.1, metalness: 0.6,
       side: THREE.DoubleSide, depthWrite: false,
     });
-    add(new THREE.PlaneGeometry(0.62, 0.85), glassMat, -0.95, 0.15, -0.7, 0, 0.7, 0);
-    add(new THREE.PlaneGeometry(0.62, 0.85), glassMat, 0.95, 0.15, -0.7, 0, -0.7, 0);
+    add(new THREE.PlaneGeometry(0.62, 0.85), glassMat, -0.88, 0.15, -0.62, 0, 0.7, 0);
+    add(new THREE.PlaneGeometry(0.62, 0.85), glassMat, 0.88, 0.15, -0.62, 0, -0.7, 0);
   }
 
   _buildHudGlass() {
@@ -76,10 +85,12 @@ export class RealCockpit {
     this.radarTex = new THREE.CanvasTexture(cv);
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.36),
       new THREE.MeshBasicMaterial({ map: this.radarTex, transparent: true, depthWrite: false }));
-    plane.position.set(-0.46, -0.30, -0.86);
+    // Panel MAJU ke z=-0,70 (di depan muka dasbor -0,80) — dasbor r4 menutup
+    // panel karena muka dasbor lebih dekat ke kamera daripada panel.
+    plane.position.set(-0.48, -0.30, -0.70);
     this.group.add(plane);
     const label = this._labelPlane('TACTICAL NAV / RDR', 0.24);
-    label.position.set(-0.46, -0.12, -0.86);
+    label.position.set(-0.48, -0.10, -0.70);
     this.group.add(label);
   }
 
@@ -89,7 +100,7 @@ export class RealCockpit {
     this.attTex = new THREE.CanvasTexture(cv);
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34),
       new THREE.MeshBasicMaterial({ map: this.attTex, transparent: true, depthWrite: false }));
-    plane.position.set(0, -0.30, -0.86);
+    plane.position.set(0, -0.30, -0.70);
     this.group.add(plane);
   }
 
@@ -97,9 +108,13 @@ export class RealCockpit {
     const [cv, cx] = makeCanvas(288, 256);
     this.engCv = cv; this.engCx = cx;
     this.engTex = new THREE.CanvasTexture(cv);
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.34),
+    // m1: panel ENG/SYS digeser ke kanan + dipersempit (0,38 -> 0,34) supaya
+    // tidak menabrak bola attitude di tengah dan tidak menutup teks radio.
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.28),
       new THREE.MeshBasicMaterial({ map: this.engTex, transparent: true, depthWrite: false }));
-    plane.position.set(0.47, -0.30, -0.86);
+    // Diangkat (y -0,27, tinggi 0,28): baris bawah "HOOK DN" r4 terpotong
+    // bar HUD bawah.
+    plane.position.set(0.52, -0.27, -0.70);
     this.group.add(plane);
   }
 
@@ -265,9 +280,8 @@ export class RealCockpit {
       cx.fillStyle = col;
       cx.fillText(txt, 14, 156 + i * 28);
     });
-    cx.fillStyle = '#ffcf6a';
-    cx.font = '700 16px "Segoe UI", Arial, sans-serif';
-    cx.fillText(s.ilsLocked ? 'ILS LOC/GS LOCKED' : 'ILS —', 14, 236);
+    // Baris ILS dihapus: status ILS sudah tampil di panel BALL HUD kanan-atas;
+    // di sini ia jatuh di tepi bawah panel dan tertutup bar HUD bawah.
     this.engTex.needsUpdate = true;
   }
 
