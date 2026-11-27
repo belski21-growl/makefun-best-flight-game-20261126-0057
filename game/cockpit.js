@@ -110,11 +110,15 @@ export class RealCockpit {
     this.engTex = new THREE.CanvasTexture(cv);
     // m1: panel ENG/SYS digeser ke kanan + dipersempit (0,38 -> 0,34) supaya
     // tidak menabrak bola attitude di tengah dan tidak menutup teks radio.
+    // POLES r5 item 1a: geser kiri lagi (x 0,52 -> 0,40, ~110 px layar) —
+    // lingkaran RADAR 2KM (HUD 2D, kanan-bawah) menutupi angka N1/FUEL/HULL
+    // di tepi kanan panel. Di x 0,40 angka terbaca penuh; panel tetap bersih
+    // dari bola attitude (celah ~50 px) dan panel VSI.
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.28),
       new THREE.MeshBasicMaterial({ map: this.engTex, transparent: true, depthWrite: false }));
     // Diangkat (y -0,27, tinggi 0,28): baris bawah "HOOK DN" r4 terpotong
     // bar HUD bawah.
-    plane.position.set(0.52, -0.27, -0.70);
+    plane.position.set(0.40, -0.27, -0.70);
     this.group.add(plane);
   }
 

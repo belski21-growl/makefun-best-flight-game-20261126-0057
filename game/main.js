@@ -519,6 +519,11 @@ export class Game {
   _hudState() {
     const f = this.flight;
     const d = f.display();
+    // POLES r5 item 3: radio-altimeter saat mendarat — roda di landasan =
+    // 0 FT. ALT MSL (pos.y x 3,28) di landasan pulau (y=44) membaca 149 FT
+    // padahal jet sudah touchdown; angka itu menyesatkan di shot 4. Hanya
+    // saat landed; shot 1/2/3 (terbang) tidak berubah. Pita ALT ikut 0.
+    if (f.landed) d.ft = 0;
     const ctx = this.missionCtx();
     const target = this.missions.currentTarget(ctx);
     const targetDist = target ? Math.hypot(target.pos.x - f.pos.x, target.pos.y - f.pos.y, target.pos.z - f.pos.z) : 0;
@@ -559,7 +564,7 @@ export class Game {
       clock: String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0'),
       flashAlpha: this.weather.flashAlpha,
       endBanner: this.missions.phase === 'done'
-        ? { text: 'MENDARAT — SKOR AMAN', sub: 'Bank +' + Math.round(this.missions.score).toLocaleString('en-US') + ' · Repair selesai' }
+        ? { text: 'MENDARAT — SKOR AMAN', sub: 'Bank +' + (this.stagedLso && this.stagedLso.banked ? this.stagedLso.banked : Math.round(this.missions.score).toLocaleString('en-US')) + ' · Repair selesai' }
         : this.missions.phase === 'failed'
           ? { text: 'JATUH — COBA LAGI', sub: 'Restart dalam 5 detik · tekan RETRY di debrief' }
           : null,

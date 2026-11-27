@@ -202,15 +202,26 @@ export class HeadsUpDisplay {
       const p = this._project(s.target.pos, s.camera);
       if (p && p.z < 1 && Math.abs(p.x) < 1.05 && Math.abs(p.y) < 1.05) {
         const gx = (p.x * 0.5 + 0.5) * W, gy = (0.5 - p.y * 0.5) * H;
-        this._panel(gx - 85, gy - 52, 170, 26);
-        this._text(s.target.label + ' · ' + Math.round(s.targetDist) + ' m', gx, gy - 39, 12, '#ffd76a', 'center', true);
+        // POLES r5 item 1b: di kokpit, chip yang jatuh di zona dasbor
+        // bawah-tengah menempel di atas bola attitude (kuning di atas tan =
+        // nyaris tak terbaca). Naikkan 180 px — ke langit kosong di atas bola,
+        // di bawah ladder -10 dan teks THR/AOA — supaya terbaca penuh.
+        const cy2 = (s.cockpit && gy > H - 240) ? gy - 180 : gy;
+        this._panel(gx - 85, cy2 - 52, 170, 26);
+        this._text(s.target.label + ' · ' + Math.round(s.targetDist) + ' m', gx, cy2 - 39, 12, '#ffd76a', 'center', true);
       } else {
         // Panah tepi-frame ke arah target.
         const dx = s.target.pos.x - s.playerX, dz = s.target.pos.z - s.playerZ;
         const ang = Math.atan2(dx, -dz) - (d.hdg * Math.PI / 180);
         const ex = W / 2 + Math.sin(ang) * (W / 2 - 90);
         const ey = H / 2 - Math.cos(ang) * (H / 2 - 120);
-        const exx = clamp(ex, 60, W - 60), eyy = clamp(ey, 120, H - 60);
+        let exx = clamp(ex, 60, W - 60), eyy = clamp(ey, 120, H - 60);
+        // POLES r5 item 1b (lanjutan): di kokpit shot 2, target DINDING BADAI
+        // ada DI BELAKANG jet (z -800 vs jet -950) — panah tepi jatuh di tengah
+        // bawah, tepat di atas bola attitude (kuning di atas tan). Geser kiri
+        // 220 px — ke sela kosong antara radar scope dan bola; arah (bawah =
+        // di belakang) tetap terjaga. Mode chase tidak berubah.
+        if (s.cockpit) exx = clamp(exx - 220, 60, W - 60);
         c.fillStyle = '#ffd76a';
         c.beginPath();
         c.moveTo(exx, eyy - 12); c.lineTo(exx - 9, eyy + 8); c.lineTo(exx + 9, eyy + 8);
@@ -288,7 +299,10 @@ export class HeadsUpDisplay {
     // m1: di mode kokpit, teks digeser ke kiri (pusat -130 px) + diberi
     // backing gelap supaya terbaca di atas bola attitude / radar scope —
     // tanpa backing, teks kuning pucat di atas bola tan hampir tak terbaca.
-    let ry = H - 116;
+    // POLES r5 item 1c: di kokpit, teks radio naik 30 px (H-146) — tadinya
+    // menumpuk di atas baris hint kontrol bawah. Mode chase tidak berubah
+    // (shot 1/3/4 pixel-identik untuk baris ini).
+    let ry = s.cockpit ? H - 146 : H - 116;
     const radioX = s.cockpit ? W / 2 - 130 : W / 2;
     for (let i = this.radioLines.length - 1; i >= 0; i--) {
       const rl = this.radioLines[i];

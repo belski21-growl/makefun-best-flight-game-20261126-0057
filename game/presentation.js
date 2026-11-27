@@ -47,14 +47,19 @@ export const SHOT_DEFS = {
     // TOUCHDOWN / rollout di landasan pulau (bukan approach): LSO hanya boleh
     // tampil SETELAH touchdown — di sini jet SUDAH mendarat (landed: true),
     // jadi panel LSO tampil secara sah dengan TOUCHDOWN KT = SPD saat itu.
+    // POLES r5 item 2+3: skor disamakan dengan debrief shot 5 (5,301 sortie /
+    // 5,001 banked — 4200 + 801 bonus presisi + 300 wingman, banked = 5001);
+    // touchdown BENERAN: y 44,8 = perut pesawat (radius badan 0,62) tepat di
+    // permukaan strip (44,15), roll 0 (sayap datar), VSI 0 (pitch 0), SPD 65
+    // m/s = 126 KT = touchdownKt. ALT 0 FT via radio-altimeter di _hudState.
     mission: 3, gameT: 192, camera: 'chase',
-    jet: { x: 0, y: 45.5, z: -1330, heading: 0, pitch: 0, roll: -8, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
-    score: 4200, gates: 0, combo: 3, discipline: 128, kills: 5,
+    jet: { x: 0, y: 44.8, z: -1330, heading: 0, pitch: 0, roll: 0, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
+    score: 5301, gates: 0, combo: 3, discipline: 128, kills: 5,
     banner: 'MENDARAT — SKOR AMAN · LANDASAN PULAU BADAI',
     radio: [['MENARA BOROBUDUR', 'Merpati 1, landasan pulau di depan. PAPI menyala — bawa pulang.']],
     afterburner: false, windText: 'WIND SHEAR 12 KT · HUJAN',
     rain: 0.8, lso: true, wallCrossed: true, carrierDead: true, landed: true,
-    stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 126, fuel: 41, score: '4,200' },
+    stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 126, fuel: 41, score: '5,301', banked: '5,001' },
   },
   5: {
     // DEBRIEF (bukti, bukan shot dossier): layar grade + medal + modul,
