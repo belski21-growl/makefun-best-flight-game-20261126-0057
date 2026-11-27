@@ -242,6 +242,7 @@ export class Autopilot {
     this.bombCd = 0;
     this.pullUpFrames = 0; // frame tersisa untuk pull-up paksa setelah bom
     this.rwySide = null; // sisi approach landasan yang dikunci (-1 utara / +1 selatan)
+    this.rwyJoined = false; // sudah gabung final lewat IAF (straight-in panjang)
   }
 
   // Path-following generik (pure pursuit): titik terdekat di polyline, lalu
@@ -318,8 +319,8 @@ export class Autopilot {
     const target = game.missions.currentTarget(ctx);
     const input = {};
     if (!target || game.missions.phase !== 'flying') return input;
-    // Reset kunci sisi approach saat target bukan landasan.
-    if (target.kind !== 'runway') this.rwySide = null;
+    // Reset kunci sisi approach + status join final saat target bukan landasan.
+    if (target.kind !== 'runway') { this.rwySide = null; this.rwyJoined = false; }
     // Gate: ikuti path (lookahead) saat gate di depan; kalau gate sudah di
     // belakang (terlewat), kembali ke pursuit reaktif ke titik gate.
     let aimPos = target.pos;
@@ -335,15 +336,54 @@ export class Autopilot {
       while (errGate < -180) errGate += 360;
       if (Math.abs(errGate) < 90) aimPos = this._gateLookahead(game);
     }
-    // Landasan: final approach garis lurus (IAF utara 150 m -> landasan),
-    // lookahead 400 m. Dua tahap + fix point membuat jet mengorbit fix.
-    // JANGAN TURUN sebelum di centerline: kalau |x|>40 dari centerline, tahan
-    // di 150 m (di atas karst 70-90 m) — jet yang turun sambil masih 121 m
-    // off-centerline menabrak karst di samping strip.
+    // Landasan: final approach garis lurus dari IAF utara (0,220,cz-2500) ke
+    // landasan — TAPI jet harus gabung final LEWAT IAF dulu (straight-in
+    // panjang), bukan snap ke final di dekat strip. Snap itu yang bikin
+    // limit cycle M2: jet gabung final cuma 300-500 m dari strip di 150 m,
+    // radius belok ~230 m di 57 m/s, jendela |x|<40 cuma 1-2 dtk padahal
+    // harus kehilangan ~130 m (max sink ~17 m/s) — mengorbit sampai BBM
+    // habis (terbukti: flying di cap 420, fuel 0, kill 6).
+    // "Joined" = pernah dalam 350 m dari IAF, ATAU sudah kelewat IAF ke
+    // utara, ATAU sudah sejajar final (|x|<120 + heading searah final +
+    // tidak jauh di atas glideslope). Sebelum joined, bidik IAF. Sesudah joined,
+    // ikuti glideslope dengan koridor pelebaran: boleh turun begitu sejajar
+    // koridor (40 m di <300 m, +0,12 m per meter jarak di luar itu) — di
+    // jauh glideslope sudah di atas karst (70-90 m); di dekat strip jet
+    // harus sudah di centerline. Lantai 150 m tetap berlaku kalau di luar
+    // koridor; LSO grade TIDAK berubah (centerline error + sink tetap
+    // diukur jujur di flight.js).
     if (target.kind === 'runway') {
-      aimPos = this._runwayLookahead(game, target);
-      if (Math.abs(f.pos.x - target.pos.x) > 40) {
-        aimPos = { x: aimPos.x, y: Math.max(aimPos.y, 150), z: aimPos.z };
+      const cx = target.pos.x, cz = target.pos.z;
+      const distH = Math.hypot(f.pos.x - cx, f.pos.z - cz);
+      const distIaf = Math.hypot(f.pos.x - cx, f.pos.z - (cz - 2500));
+      let hdgErr = f.heading - 180;
+      while (hdgErr > 180) hdgErr -= 360;
+      while (hdgErr < -180) hdgErr += 360;
+      const onNorthFinal = f.pos.z < cz && Math.abs(hdgErr) < 40;
+      let hdgErr0 = f.heading;
+      while (hdgErr0 > 180) hdgErr0 -= 360;
+      while (hdgErr0 < -180) hdgErr0 += 360;
+      const onSouthFinal = f.pos.z > cz && Math.abs(hdgErr0) < 40;
+      // "Sejajar final" = dekat centerline + heading searah final + TIDAK
+      // jauh di atas glideslope. Tanpa syarat ketinggian, jet yang kebetulan
+      // melintas dekat strip di 110 m (M2) ikut kehitung sejajar lalu
+      // menukik mustahil; tanpa syarat jarak, M1 yang keluar gate 6 persis
+      // di final selatan (144 m dari strip, |x|=3, heading 350) malah
+      // dikirim memutar ke IAF di pegunungan dan JATUH. Glideslope dihitung
+      // dari IAF (220 m) ke ujung landasan (target.y-6,5).
+      const endY = target.pos.y - 6.5;
+      const glideY = endY + (220 - endY) * Math.min(distH, 2500) / 2500;
+      const established = Math.abs(f.pos.x - cx) < 120 && (onNorthFinal || onSouthFinal)
+        && f.pos.y <= glideY + 30;
+      if (distIaf < 350 || f.pos.z < cz - 2500 || established) this.rwyJoined = true;
+      if (!this.rwyJoined) {
+        aimPos = { x: cx, y: 220, z: cz - 2500 };
+      } else {
+        aimPos = this._runwayLookahead(game, target);
+        const corridor = 40 + 0.12 * Math.max(0, distH - 300);
+        if (Math.abs(f.pos.x - cx) > corridor) {
+          aimPos = { x: aimPos.x, y: Math.max(aimPos.y, 150), z: aimPos.z };
+        }
       }
     }
     const dx = aimPos.x - f.pos.x;
