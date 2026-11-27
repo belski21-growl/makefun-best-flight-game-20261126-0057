@@ -118,7 +118,10 @@ export class RealCockpit {
       new THREE.MeshBasicMaterial({ map: this.engTex, transparent: true, depthWrite: false }));
     // Diangkat (y -0,27, tinggi 0,28): baris bawah "HOOK DN" r4 terpotong
     // bar HUD bawah.
-    plane.position.set(0.40, -0.27, -0.70);
+    // MICRO-FIX item 5: naik lagi ke y -0,24 — "HOOK DN" masih terpotong
+    // setengah di shot 2 (teks jatuh di tepi atas bar bawah). Naik ~20 px
+    // layar; sumbu-x dan ukuran panel tidak berubah.
+    plane.position.set(0.40, -0.24, -0.70);
     this.group.add(plane);
   }
 

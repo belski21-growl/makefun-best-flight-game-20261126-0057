@@ -55,8 +55,12 @@ export const SHOT_DEFS = {
     mission: 3, gameT: 192, camera: 'chase',
     jet: { x: 0, y: 44.8, z: -1330, heading: 0, pitch: 0, roll: 0, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
     score: 5301, gates: 0, combo: 3, discipline: 128, kills: 5,
-    banner: 'MENDARAT — SKOR AMAN · LANDASAN PULAU BADAI',
-    radio: [['MENARA BOROBUDUR', 'Merpati 1, landasan pulau di depan. PAPI menyala — bawa pulang.']],
+    // MICRO-FIX item 2: banner staging dibedakan dari banner akhir — dulu
+    // "MENDARAT — SKOR AMAN · …" dobel dengan endBanner "MENDARAT — SKOR
+    // AMAN". Kini staging = TOUCHDOWN, endBanner (main.js) = SKOR AMAN.
+    // Radio approach diganti teks rollout.
+    banner: 'TOUCHDOWN — LANDASAN PULAU BADAI',
+    radio: [['MENARA BOROBUDUR', 'Selamat datang kembali, Merpati 1.']],
     afterburner: false, windText: 'WIND SHEAR 12 KT · HUJAN',
     rain: 0.8, lso: true, wallCrossed: true, carrierDead: true, landed: true,
     stagedLso: { grade: 'OK', centerline: '0.4', sink: '2.1', kt: 126, fuel: 41, score: '5,301', banked: '5,001' },
@@ -64,8 +68,11 @@ export const SHOT_DEFS = {
   5: {
     // DEBRIEF (bukti, bukan shot dossier): layar grade + medal + modul,
     // dipicu lewat jalur ASLI missions._finish() — bukan fabrikasi DOM.
+    // MICRO-FIX item 3: pose latar DISAMAKAN dengan shot 4 (y 44,8 / z -1330
+    // / roll 0 — dulu 45,5 / -1300 / -8, latar sedikit beda); momen sama
+    // 03:12 (gameT 192). Skor dasar tetap 4200 → _finish jadi 5,301.
     mission: 3, gameT: 192, camera: 'chase',
-    jet: { x: 0, y: 45.5, z: -1300, heading: 0, pitch: 0, roll: -8, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
+    jet: { x: 0, y: 44.8, z: -1330, heading: 0, pitch: 0, roll: 0, speed: 65, throttle: 0.5, fuel: 41, hull: 90 },
     score: 4200, gates: 0, combo: 3, discipline: 128, kills: 5, killsByLightning: 2, wingmanSaved: true,
     banner: 'DINDING PETIR — MISI SELESAI',
     radio: [['MENARA BOROBUDUR', 'Merpati 1, selamat datang kembali. Skor di-bank.']],

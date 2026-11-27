@@ -558,13 +558,18 @@ export class Game {
       popups: this.juice.popups,
       approach,
       lso: this._lsoInfo(approach),
+      // MICRO-FIX item 2: HUD perlu tahu jet sudah mendarat supaya peringatan
+      // "DI DALAM AWAN" tidak tampil saat landed (shot 4/5).
+      landed: f.landed,
       cockpit: this.cameraMode === 'cockpit',
       combo: this.juice.combo,
       multiplier: this.juice.multiplier,
       clock: String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0'),
       flashAlpha: this.weather.flashAlpha,
       endBanner: this.missions.phase === 'done'
-        ? { text: 'MENDARAT — SKOR AMAN', sub: 'Bank +' + (this.stagedLso && this.stagedLso.banked ? this.stagedLso.banked : Math.round(this.missions.score).toLocaleString('en-US')) + ' · Repair selesai' }
+        // MICRO-FIX item 2: headline akhir dibedakan dari banner misi —
+        // dulu "MENDARAT — SKOR AMAN" dobel dengan banner staging shot 4.
+        ? { text: 'SKOR AMAN — BANK +' + (this.stagedLso && this.stagedLso.banked ? this.stagedLso.banked : Math.round(this.missions.score).toLocaleString('en-US')), sub: 'SORTIE ' + Math.round(this.missions.score).toLocaleString('en-US') + ' · Repair selesai' }
         : this.missions.phase === 'failed'
           ? { text: 'JATUH — COBA LAGI', sub: 'Restart dalam 5 detik · tekan RETRY di debrief' }
           : null,

@@ -93,7 +93,9 @@ export class HeadsUpDisplay {
     const warn = [];
     if (d.ice > 0.25) warn.push('ES ' + Math.round(d.ice * 100) + '%');
     if (s.lightningWarn) warn.push('PETIR DEKAT');
-    if (s.inCloud) warn.push('DI DALAM AWAN');
+    // MICRO-FIX item 2: "DI DALAM AWAN" tidak tampil saat sudah mendarat —
+    // jet di landasan bukan di dalam awan (shot 4/5).
+    if (s.inCloud && !s.landed) warn.push('DI DALAM AWAN');
     if (d.stalled) warn.push('STALL!');
     if (d.fuel < 20) warn.push('BBM RENDAH');
     this._text(warn.length ? '⚠ ' + warn.join(' · ') : 'ANGIN: ' + (s.windText || 'TENANG'), W - 258, 112, 11, warn.length ? '#ff6a5a' : '#cfe0e8', 'left', true);
