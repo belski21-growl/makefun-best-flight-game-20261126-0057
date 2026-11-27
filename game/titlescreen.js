@@ -11,9 +11,10 @@ export class TitleScreen {
     this.el.id = 'title-screen';
     this.el.style.cssText = [
       'position:fixed', 'inset:0', 'display:flex', 'align-items:flex-start',
-      // MICRO-FIX item 1: gradien OPAQUE — HUD di belakang tidak boleh tembus.
-      // Dulu rgba(…,0.88/0.55/0.15): top bar + chip gate + radar HUD tembus.
-      'background:linear-gradient(90deg, #060c12 0%, #060c12 55%, #0a141e 100%)',
+      // Q1 ronde 2 (see-fix): jet hero di x~700–780 masih redup di balik
+      // pita 0,72/0,35 — turunkan lagi pita tengah supaya jet di landasan
+      // terbaca, kiri tetap opaque (teks tidak kena).
+      'background:linear-gradient(90deg, #060c12 0%, #060c12 48%, rgba(6,12,18,0.50) 62%, rgba(6,12,18,0.18) 78%, rgba(6,12,18,0.04) 100%)',
       'overflow-y:auto',
       'z-index:20', 'font-family:"Segoe UI",Arial,sans-serif', 'color:#f5ead0',
     ].join(';');
